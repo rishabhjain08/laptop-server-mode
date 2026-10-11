@@ -39,8 +39,9 @@ while ($true) {
         }
         foreach ($f in $fire) { Invoke-Hooks $f[0] $f[1] }
 
-        # Before any wsl.exe of ours starts: see Repair-Wslg.
-        Repair-Wslg $conf.wslDistro
+        # Repair-Wslg (restart WSL from the desktop session) is off: restarting
+        # every Claude at each sign-in costs too much. To be replaced by
+        # reconnecting WSLg's msrdc without a restart.
 
         # WSL stops a distro when no Windows process holds it open. Keep the
         # main distro up while server mode is ON, and each WSL service's
