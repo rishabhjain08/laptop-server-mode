@@ -36,6 +36,16 @@ key() { tmux send-keys -t "=$NAME:" "$@"; }
 # Only the last lines: the menu and the status bar live there, while
 # older conversation text further up may mention the same words.
 bottom() { pane | grep -v '^[[:space:]]*$' | tail -4; }
+# The conversation in DIR whose last user or assistant message is newest.
+latest() {
+  local f t best= bt=
+  for f in "$PROJECT"/*.jsonl; do
+    [ -f "$f" ] || continue
+    t=$(tac "$f" | grep -a -m1 -E '"type":"(user|assistant)"' | grep -o '"timestamp":"[^"]*"')
+    [[ "$t" > "$bt" ]] && { bt=$t; best=$(basename "$f" .jsonl); }
+  done
+  echo "$best"
+}
 rc_heal() {
   local f stamp s
   # The transcript of the Claude running in this tmux session (Claude records
@@ -44,7 +54,9 @@ rc_heal() {
   # healthy session.
   for s in "$HOME"/.claude/sessions/*.json; do
     grep -q "\"tmux\":\"$NAME:" "$s" 2>/dev/null || continue
-    kill -0 "$(basename "$s" .json)" 2>/dev/null || continue
+    # Still that process? PIDs get reused; procStart is its start time.
+    [ "$(cut -d' ' -f22 "/proc/$(basename "$s" .json)/stat" 2>/dev/null)" = \
+      "$(grep -o '"procStart":"[^"]*"' "$s" | cut -d'"' -f4)" ] || continue
     f=$PROJECT/$(grep -o '"sessionId":"[^"]*"' "$s" | cut -d'"' -f4).jsonl
   done
   [ -f "$f" ] || f=$(ls -t "$PROJECT"/*.jsonl 2>/dev/null | head -1)
@@ -86,13 +98,15 @@ case "${1:-}" in
     # Remote Control reconnect and its update check. Wait up to 40 s for it.
     for _ in $(seq 10); do curl -s -o /dev/null --max-time 2 https://api.anthropic.com && break; sleep 2; done
     CMD="claude -n '$NAME' --remote-control '$NAME' $FLAGS"
-    # Resume the most recent conversation; start a fresh one if there is none
-    # or it can't be resumed, rather than loop.
-    if [ -f "$STATE/fresh-next" ]; then   # see rc_heal
+    # Resume the conversation with the latest message; start a fresh one if
+    # there is none or it can't be resumed, rather than loop. Not --continue:
+    # it picks the newest file, and Claude also appends notices to old ones.
+    id=$(latest)
+    if [ -f "$STATE/fresh-next" ] || [ -z "$id" ]; then   # see rc_heal
       rm -f "$STATE/fresh-next"
       tmux new-session -d -s "$NAME" -c "$DIR" "$CMD"
     else
-      tmux new-session -d -s "$NAME" -c "$DIR" "$CMD --continue || $CMD"
+      tmux new-session -d -s "$NAME" -c "$DIR" "$CMD --resume $id || $CMD"
     fi
     ;;
   check)

@@ -307,7 +307,11 @@ PULSE_SERVER=unix:/mnt/wslg/PulseServer pactl list short sources 2>/dev/null | g
 command -v pactl >/dev/null || mic=unknown
 busy=no
 for s in /root/.claude/sessions/*.json /home/*/.claude/sessions/*.json; do
-  [ -f "$s" ] && kill -0 "$(basename "$s" .json)" 2>/dev/null && grep -q '"status":"busy"' "$s" && busy=yes
+  [ -f "$s" ] || continue
+  # Still that process? PIDs get reused; procStart is its start time.
+  [ "$(cut -d' ' -f22 "/proc/$(basename "$s" .json)/stat" 2>/dev/null)" = \
+    "$(grep -o '"procStart":"[^"]*"' "$s" | cut -d'"' -f4)" ] || continue
+  grep -q '"status":"busy"' "$s" && busy=yes
 done
 echo "mic=$mic busy=$busy"
 '@

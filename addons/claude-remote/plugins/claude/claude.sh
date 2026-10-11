@@ -33,7 +33,9 @@ rc_heal() {
   # healthy session.
   for s in /home/claude/.claude/sessions/*.json; do
     grep -q "\"tmux\":\"$SESSION:" "$s" 2>/dev/null || continue
-    kill -0 "$(basename "$s" .json)" 2>/dev/null || continue
+    # Still that process? PIDs get reused; procStart is its start time.
+    [ "$(cut -d' ' -f22 "/proc/$(basename "$s" .json)/stat" 2>/dev/null)" = \
+      "$(grep -o '"procStart":"[^"]*"' "$s" | cut -d'"' -f4)" ] || continue
     f=/home/claude/.claude/projects/-home-claude-work/$(grep -o '"sessionId":"[^"]*"' "$s" | cut -d'"' -f4).jsonl
   done
   [ -f "$f" ] || f=$(ls -t /home/claude/.claude/projects/-home-claude-work/*.jsonl 2>/dev/null | head -1)
@@ -81,13 +83,22 @@ case "${1:-}" in
     # Right after boot the network can lag behind; Claude then fails its one
     # Remote Control reconnect and its update check. Wait up to 40 s for it.
     for _ in $(seq 10); do curl -s -o /dev/null --max-time 2 https://api.anthropic.com && break; sleep 2; done
-    # Resume the last conversation; start fresh if there is none or it can't load.
+    # Resume the conversation with the latest message; start fresh if there is
+    # none or it can't load. Not --continue: it picks the newest file, and
+    # Claude also appends notices to old ones.
     CMD='claude --remote-control --dangerously-skip-permissions'
-    if [ -f /run/claude-fresh-next ]; then   # see rc_heal
+    id=
+    bt=
+    for f in /home/claude/.claude/projects/-home-claude-work/*.jsonl; do
+      [ -f "$f" ] || continue
+      t=$(tac "$f" | grep -a -m1 -E '"type":"(user|assistant)"' | grep -o '"timestamp":"[^"]*"')
+      [[ "$t" > "$bt" ]] && { bt=$t; id=$(basename "$f" .jsonl); }
+    done
+    if [ -f /run/claude-fresh-next ] || [ -z "$id" ]; then   # see rc_heal
       rm -f /run/claude-fresh-next
       as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD'"
     else
-      as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD --continue || $CMD'"
+      as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD --resume $id || $CMD'"
     fi
     ;;
   check)
