@@ -44,13 +44,27 @@ function Write-Log {
 
 # ---------------------------------------------------------------- config + state
 
+$script:LastConfig = $null
+$script:ConfigError = $null
+
+# A config.json you're editing may be invalid for a while: keep using the last
+# good settings (or the defaults) and log the problem once, not every round.
 function Get-Config {
     $conf = [ordered]@{ batteryLimit = 35; pollSeconds = 15; wslDistro = '' }
     if (Test-Path $ConfPath) {
-        $json = Get-Content $ConfPath -Raw | ConvertFrom-Json
+        try { $json = Get-Content $ConfPath -Raw | ConvertFrom-Json }
+        catch {
+            if ("$_" -ne $script:ConfigError) { Write-Log "config.json is invalid, using the last good settings: $_" }
+            $script:ConfigError = "$_"
+            if ($script:LastConfig) { return $script:LastConfig }
+            return [pscustomobject]$conf
+        }
+        if ($script:ConfigError) { Write-Log 'config.json is valid again' }
+        $script:ConfigError = $null
         foreach ($p in $json.PSObject.Properties) { $conf[$p.Name] = $p.Value }
     }
-    [pscustomobject]$conf
+    $script:LastConfig = [pscustomobject]$conf
+    $script:LastConfig
 }
 
 function New-State {
@@ -62,24 +76,37 @@ function New-State {
     }
 }
 
-function Read-StateFile {
+function Read-StateJson {
+    param([string]$Path)
     $s = New-State
+    $json = [IO.File]::ReadAllText($Path) | ConvertFrom-Json
+    if (-not $json) { throw 'empty' }
+    foreach ($p in $json.PSObject.Properties) { $s | Add-Member -Force $p.Name $p.Value }
+    $s
+}
+
+# Every save also keeps a copy as state.json.bak. If state.json is damaged or
+# missing, the last saved state comes back from there; starting fresh would
+# turn server mode and services off.
+function Read-StateFile {
+    $bak = "$StatePath.bak"
     # Lock-free readers (Get-State) can race a save, so retry briefly.
     for ($i = 1; $i -le 5; $i++) {
-        if (-not (Test-Path $StatePath)) {
-            if ($i -lt 5) { Start-Sleep -Milliseconds 100; continue }
-            return $s   # first run
-        }
-        try {
-            $json = [IO.File]::ReadAllText($StatePath) | ConvertFrom-Json
-            foreach ($p in $json.PSObject.Properties) { $s | Add-Member -Force $p.Name $p.Value }
-            return $s
-        } catch {
-            if ($i -eq 5) { Write-Log "state.json unreadable, starting fresh: $_" }
-            else { Start-Sleep -Milliseconds 100 }
-        }
+        if (Test-Path $StatePath) {
+            try { return Read-StateJson $StatePath }
+            catch { $err = $_ }
+        } else { $err = 'missing' }
+        if ($i -lt 5) { Start-Sleep -Milliseconds 100 }
     }
-    $s
+    if (Test-Path $bak) {
+        try {
+            $s = Read-StateJson $bak
+            Write-Log "state.json unreadable ($err); restored the last saved state"
+            return $s
+        } catch { }
+    }
+    if ($err -ne 'missing') { Write-Log "state.json unreadable, starting fresh: $err" }
+    New-State   # first run
 }
 
 # Runs $Body with exclusive access to state.json and saves what it returns.
@@ -98,6 +125,7 @@ function Update-State {
         $state = & $Body $state
         $tmp = "$StatePath.tmp"
         $state | ConvertTo-Json -Depth 5 | Set-Content -Path $tmp -Encoding ASCII
+        Copy-Item $tmp "$StatePath.bak" -Force
         # Replace in one step, so readers never see the file missing.
         if (Test-Path $StatePath) { [IO.File]::Replace($tmp, $StatePath, [NullString]::Value) }
         else { Move-Item $tmp $StatePath }

@@ -102,7 +102,9 @@ function Invoke-PluginCode {
         $text = (($head -join "`n") + "`n" + $Code) -replace "`r`n", "`n"
         $user = if ($Plugin.wslUser) { "-u $($Plugin.wslUser) " } else { '' }
         # wsl.exe does not strip quotes from -d; distro names never contain spaces.
-        Invoke-Hidden $Wsl "-d $(Get-PluginDistro $Plugin) $user--cd / -- bash -s -- $($Arguments -join ' ')" -TimeoutSec $TimeoutSec -InputText $text
+        $distro = Get-PluginDistro $Plugin
+        $d = if ($distro) { "-d $distro " } else { '' }   # none set: the default distro
+        Invoke-Hidden $Wsl "$d$user--cd / -- bash -s -- $($Arguments -join ' ')" -TimeoutSec $TimeoutSec -InputText $text
     } else {
         $vars['LSM_PLUGIN_DIR'] = $Plugin.dir
         $head = foreach ($k in $vars.Keys) { "`$env:$k = '" + ($vars[$k] -replace "'", "''") + "'" }

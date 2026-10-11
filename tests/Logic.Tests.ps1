@@ -204,6 +204,41 @@ Check 'plugins: services are run/script ones' (((@(Get-Services).name | Sort-Obj
 Check 'plugins: defaults' (($pl | Where-Object name -eq 'ok-run').runsIn -eq 'wsl' -and ($pl | Where-Object name -eq 'ok-run').title -eq 'ok-run' -and ($pl | Where-Object name -eq 'ok-run').enabledByDefault)
 Check 'plugins: distro falls back to config' ((Get-PluginDistro ($pl | Where-Object name -eq 'ok-run')) -eq 'TestDistro')
 
+# ------------------------------------------------------------ damaged files
+Remove-Item "$tmp\state.json*" -ErrorAction SilentlyContinue
+Update-State { param($s) $s.enabled = $true; $s.services | Add-Member -Force keep $true; $s } | Out-Null
+[IO.File]::WriteAllText("$tmp\state.json", '{ "enabled": tru')
+$s = Get-State
+Check 'corrupt state.json -> last saved state' ($s.enabled -eq $true -and $s.services.keep -eq $true) "enabled=$($s.enabled)"
+Check 'corrupt state.json -> logged' ((Get-Content "$tmp\logs\watchdog.log" -Raw) -match 'restored the last saved state')
+$s = Update-State { param($x) $x.reason = 'on'; $x }
+Check 'save after corruption repairs state.json' (((Get-Content "$tmp\state.json" -Raw) | ConvertFrom-Json).enabled -eq $true)
+Remove-Item "$tmp\state.json"
+Check 'missing state.json -> last saved state' ((Get-State).enabled -eq $true)
+[IO.File]::WriteAllText("$tmp\state.json", 'x'); [IO.File]::WriteAllText("$tmp\state.json.bak", 'y')
+Check 'both damaged -> fresh state' ((Get-State).enabled -eq $false)
+Remove-Item "$tmp\state.json*"
+Check 'first run -> fresh state, nothing logged about it' ((Get-State).enabled -eq $false -and -not ((Get-Content "$tmp\logs\watchdog.log" -Raw) -match 'starting fresh: missing'))
+
+'{ "batteryLimit": 50, "pollSeconds": 15, "wslDistro": "TestDistro" }' | Set-Content "$tmp\config.json"
+$null = Get-Config
+'{ "batteryLimit": ' | Set-Content "$tmp\config.json"
+$c = @(1..3 | ForEach-Object { Get-Config })[-1]
+$logged = @(Select-String "$tmp\logs\watchdog.log" -Pattern 'config.json is invalid').Count
+Check 'invalid config -> last good settings' ($c.batteryLimit -eq 50 -and $c.wslDistro -eq 'TestDistro') "limit=$($c.batteryLimit)"
+Check 'invalid config -> logged once' ($logged -eq 1) "logged $logged times"
+'{ "batteryLimit": 40, "pollSeconds": 15, "wslDistro": "TestDistro" }' | Set-Content "$tmp\config.json"
+Check 'fixed config -> new settings, logged' ((Get-Config).batteryLimit -eq 40 -and (Select-String "$tmp\logs\watchdog.log" -Pattern 'valid again' -Quiet))
+& $m { $script:LastConfig = $null; $script:ConfigError = $null }
+'{ "batteryLimit": ' | Set-Content "$tmp\config.json"
+Check 'invalid config at startup -> defaults' ((Get-Config).batteryLimit -eq 35)
+
+# ------------------------------------------------------------ log rotation
+Remove-Item "$tmp\logs\*" -ErrorAction SilentlyContinue
+[IO.File]::WriteAllText("$tmp\logs\watchdog.log", ('x' * 1100KB))
+Write-Log 'after rotation'
+Check 'log over 1 MB rotates to .old' ((Test-Path "$tmp\logs\watchdog.log.old") -and (Get-Item "$tmp\logs\watchdog.log").Length -lt 1KB)
+
 Remove-Module ServerMode
 Remove-Item $tmp -Recurse -Force
 Write-Output ("RESULT {0} passed, {1} failed" -f $pass, $fail)
