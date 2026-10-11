@@ -7,7 +7,8 @@ set -u
 SESSION=claude-server
 CG=/sys/fs/cgroup/claude-server
 
-as_claude() { runuser -l claude -c "$1" </dev/null; }
+# -l resets the environment; keep WSL_DISTRO_NAME so Claude can tell which distro it is in.
+as_claude() { runuser -l -w WSL_DISTRO_NAME claude -c "$1" </dev/null; }
 
 # Exit 3 = needs one-time setup by a person (sign-in, folder trust).
 ready() {
