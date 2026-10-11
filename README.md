@@ -94,7 +94,7 @@ Installed plugins live in `%LOCALAPPDATA%\LaptopServerMode\plugins`. The watchdo
 | `service-failed` | A service failed to start (first failure only, until it recovers) |
 | `shutdown` | Windows is shutting down or restarting. Best effort: Windows doesn't wait, so keep it to a few seconds. |
 
-Hooks run one at a time with a 60-second limit, in the plugin's folder, and log to `logs\hooks.log`. They get these environment variables:
+Hooks run one at a time with a 60-second limit, in the plugin's folder, and log to `logs\hooks.log`. Keep them short and don't leave work running in the background: a `boot` hook can run while the WSL distro is still starting, and processes it leaves behind may be cleaned up. Put long-running work in a service instead. Hooks get these environment variables:
 
 | Variable | Value |
 | --- | --- |
