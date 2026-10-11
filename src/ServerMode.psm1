@@ -72,6 +72,7 @@ function New-State {
         enabled = $false; ignoreBatteryLimit = $false; services = [pscustomobject]@{}
         active = $false; reason = 'off'; originalPlan = $null; serverPlan = $null
         battery = $null; onAC = $true; serviceStatus = [pscustomobject]@{}; heartbeat = $null
+        trayQuit = $false
         hookReason = $null; lastBoot = $null
     }
 }

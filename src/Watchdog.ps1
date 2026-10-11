@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'ServerMode.psm1') -Force
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $keepAlive = @{}
 $round = 0
+$trayChecked = [datetime]::MinValue
 $conf = Get-Config
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')
 
@@ -71,6 +72,18 @@ while ($true) {
             Sync-Services $snapshot
             Update-State { param($s) $s.serviceStatus = $snapshot.serviceStatus; $s } | Out-Null
         }
+        # Bring the tray back if it crashed while someone is signed in (not
+        # after "Quit tray"). The tray task starts it in that person's session.
+        if (-not $state.trayQuit -and ((Get-Date) - $trayChecked).TotalSeconds -ge 60) {
+            $trayChecked = Get-Date
+            $signedIn = @(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -ne 0).Count -gt 0
+            $running = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object CommandLine -match '\\Tray\.ps1').Count -gt 0
+            if ($signedIn -and -not $running -and (Get-ScheduledTask -TaskName 'LaptopServerMode Tray' -ErrorAction SilentlyContinue)) {
+                Start-ScheduledTask -TaskName 'LaptopServerMode Tray'
+                Write-Log 'Tray was not running; started it'
+            }
+        }
+
         if (($round % 40) -eq 1) { Clear-WorkingSet }   # about every 10 minutes
     } catch {
         Write-Log "Error: $_"

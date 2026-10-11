@@ -105,4 +105,14 @@ the lid closed.
 | --- | --- |
 | Pass | A1, A2, A3, A4, A6, A7 (re-run); B1, B2 (answers), B3 (scripted input); C1–C4 (rule, limit raised live); D1 (on), D2; E1 (on: lid closed, AC and battery), E3; F1; G1–G4; H1–H3 (scripted), H4 (previews); I1, I3; K1–K7 |
 | Fixed on the way | K1 damaged state.json turned server mode off; K2 invalid config.json errored every round; D2 nothing held the system awake while the watchdog was down; F3 no way back after "Quit tray"; I1 Remote Control gave up after a restart; A1 needed admin rights; K7 a crashed watchdog wasn't restarted and leaked WSL processes |
-| Needs a person | B2 the dialog window itself; B3 real clicks; C1/C2 a real unplug / plug-in; D1 off or paused with the lid closed (sleeps); E1 off; E2 power button; F2 sign in / lock / sign out; F3 the shortcut brings the tray back; F4 tray crash; H4 the look on screen; I2 reachable from the phone after a network drop; A5 creating ClaudeBox from scratch |
+| Needs a person | A5 creating ClaudeBox from scratch (skipped: it would wipe the box and its sign-in) |
+
+### With a person at the laptop (same day)
+
+Real mouse and keyboard input was sent to the signed-in desktop by a script
+(screenshots checked); the person did only the physical steps.
+
+| Result | Journeys |
+| --- | --- |
+| Pass | B2 dialog on screen: Cancel, "Turn on anyway", and plugging in while it waits; B3 real clicks on the icon, the card and the switches; C1 pause on battery (limit raised), C2 plugging in resumes; D1 off + lid closed sleeps (WSL clock lost the 3m25s); E2 power off, power button, not signed in: both Claude sessions answered from the phone; F2 signed out: both answered from the phone, and the tray came back at sign-in; F3 Start menu shortcut; F4 tray crash restarted by the watchdog, not after Quit; H1–H3 open, close, keyboard, logs, quit; H4 the flyout, the paused state and the dialog at 250% scale; notification pop-ups |
+| Fixed on the way | Notifications showed "LaptopServerMode" with no icon after a reinstall (now a fresh app id per install); the Remote Control check broke on a transcript with a NUL byte (grep -a); a crashed tray stayed gone until the next sign-in |

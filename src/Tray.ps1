@@ -248,7 +248,11 @@ function Invoke-FlyoutAction {
         }
         'screenoff' { [LSM.Win]::ScreenOff() }
         'logs'      { Start-Process explorer.exe (Join-Path $PSScriptRoot 'logs') }
-        'quit'      { $tray.Visible = $false; [Windows.Forms.Application]::Exit(); return }
+        'quit'      {
+            # Tells the watchdog not to bring the tray back (it does after a crash).
+            Update-State { param($s) $s | Add-Member -Force trayQuit $true; $s } | Out-Null
+            $tray.Visible = $false; [Windows.Forms.Application]::Exit(); return
+        }
     }
     if ($flyout.Visible) { Update-Flyout }
 }
@@ -317,6 +321,7 @@ $timer.Start()
 
 Invoke-Safely { Update-Tray }
 Write-Log "Tray started (pid $PID)" 'tray'
+if (-not $TestScript) { Update-State { param($s) $s | Add-Member -Force trayQuit $false; $s } | Out-Null }
 [LSM.Win]::Trim()
 if ($TestScript) { . $TestScript 'run'; $tray.Dispose(); return }
 [Windows.Forms.Application]::Run()
