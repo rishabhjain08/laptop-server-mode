@@ -1,0 +1,104 @@
+# Laptop Server Mode
+
+A tray toggle for Windows laptops that keeps the laptop working as a server (lid closed, unplugged, across restarts), without editing your own power settings.
+
+- **One click** in the taskbar tray switches server mode on or off.
+- **ON:** lid close and idle sleep are ignored. The screen still turns off.
+- **OFF:** your normal power plan and settings apply, unchanged.
+- **Restarts:** server mode and its services come back after a reboot, before anyone signs in.
+- **Services:** small plug-ins started and kept alive while server mode is on. The first one runs [Claude Code](https://claude.com/claude-code) with Remote Control inside WSL.
+
+## How it works
+
+| Piece | What it does |
+| --- | --- |
+| Power override | Turning ON copies your *current* power plan into a temporary plan that changes only lid close (do nothing), sleep, hibernate and unattended sleep (never). Turning OFF switches back to your plan and deletes the copy. Your own plans are never edited. |
+| Battery rule | On battery, server mode pauses at 35% (configurable) and your normal settings take over. It resumes when you plug in. If the battery is already below the limit when you turn it on, you're asked to plug in first, with an option to continue anyway. |
+| Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, keeps WSL running and restarts services that stop. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
+| Tray | Starts when you sign in. Green = ON, amber = paused by battery, grey = OFF. Left-click to toggle; right-click for services, "turn screen off now" and logs. |
+
+Note: any power-setting change you make while server mode is ON goes to the temporary plan and is discarded when you turn it OFF.
+
+## Requirements
+
+- Windows 10/11 laptop (tested on Windows 11 Home with Modern Standby)
+- WSL 2 with `tmux` (for the Claude service)
+- Admin rights once, to register the startup tasks
+
+## Install
+
+From WSL:
+
+```bash
+git clone git@github.com:rishabhjain08/laptop-server-mode.git ~/projects/laptop-server-mode
+cd ~/projects/laptop-server-mode
+./install.sh        # approve the Windows admin prompt
+```
+
+Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run `./install.sh` to update; your config and state are kept. To remove everything, run `./uninstall.sh`.
+
+### Config
+
+`%LOCALAPPDATA%\LaptopServerMode\config.json`:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `batteryLimit` | `35` | On battery, pause server mode at or below this % |
+| `pollSeconds` | `15` | How often the watchdog checks |
+| `wslDistro` | the distro you installed from | WSL distro that runs WSL services |
+| `wslRoot` | install folder as a WSL path | Used to find service scripts from WSL |
+
+## Services
+
+Each service is a folder in `services/` with a `service.json` and a script that accepts `start`, `check` or `stop` (`check` exits 0 when the service is healthy):
+
+```json
+{
+  "name": "claude",
+  "title": "Claude Code (Remote Control)",
+  "runsIn": "wsl",
+  "script": "claude.sh",
+  "enabledByDefault": true,
+  "stopWhenServerModeOff": false
+}
+```
+
+- `runsIn`: `wsl` (a bash script) or `windows` (a PowerShell script).
+- Services start when server mode turns on and are restarted if `check` fails. Failing starts are retried with growing gaps of up to 30 minutes.
+- `stopWhenServerModeOff: false` leaves the service running when server mode is turned off.
+- Turn each service on or off from the tray's **Services** menu.
+
+Never put secrets in a service. Let the tool use its own login (for example `claude` uses its own sign-in).
+
+### Claude service
+
+Runs `claude --remote-control` in a detached tmux session named `claude-server`, in `~/projects`. Override these with `LSM_CLAUDE_SESSION` or `LSM_CLAUDE_DIR` in `~/.profile`.
+
+First-time setup: sign in to Claude Code, then run `claude` once in `~/projects` and accept the folder trust prompt (or `tmux attach -t claude-server` and accept it there).
+
+Connect from the Claude app or claude.ai, or over SSH: `tmux attach -t claude-server`.
+
+## Remote access (optional)
+
+- **Tailscale** on Windows for a private network to the laptop. With WSL [mirrored networking](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking), SSH into WSL at the laptop's Tailscale IP. You may need to allow the port through the Hyper-V firewall (elevated PowerShell):
+  ```powershell
+  New-NetFirewallHyperVRule -Name WSL-SSH -DisplayName "WSL SSH" -Direction Inbound `
+    -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 22
+  ```
+- **Chrome Remote Desktop** for the Windows desktop. It runs as a service, so it works at the lock screen and after reboots. Windows Home can't host built-in Remote Desktop.
+
+## Tips
+
+- Don't run it with the lid closed inside a bag; leave room for airflow.
+- If the laptop stays plugged in, set a battery charge limit (e.g. 80%) in your vendor's tool (Lenovo Vantage, Dell Power Manager, etc.).
+- Windows Update can still restart the laptop; server mode and services come back on their own afterwards.
+
+## Troubleshooting
+
+- Logs: tray menu > **Open logs**, or `%LOCALAPPDATA%\LaptopServerMode\logs`.
+- If the tray shows "watchdog down", use tray menu > **Start watchdog** or re-run `./install.sh`.
+- To return to normal power immediately, turn server mode OFF, or run `./uninstall.sh`.
+
+## License
+
+MIT

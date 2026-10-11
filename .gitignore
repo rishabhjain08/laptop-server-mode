@@ -1,0 +1,6 @@
+# Runtime files (only ever created in the install folder, never in the repo)
+config.json
+state.json
+state.lock
+logs/
+*.log
