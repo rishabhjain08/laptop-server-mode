@@ -76,9 +76,11 @@ Never put secrets in a service. Let the tool use its own login (for example `cla
 
 ### Claude service (runs in ClaudeBox)
 
-Claude Code runs unattended with Remote Control, in **auto** permission mode
-(routine actions approved automatically, risky ones blocked), inside a
-separate, locked-down WSL distro called **ClaudeBox**. `install.sh` creates it.
+Claude Code runs unattended with Remote Control and **permission prompts
+skipped** (`--dangerously-skip-permissions`), inside a separate, locked-down
+WSL distro called **ClaudeBox**, which acts as the sandbox. `install.sh` creates it.
+After a restart it resumes the last conversation (`--continue`), or starts a
+fresh one if there is none.
 
 Why a separate distro: an unattended agent reads web pages and packages nobody
 is watching, and a prompt injection could make it misbehave. ClaudeBox makes
@@ -90,7 +92,6 @@ the worst case "one revocable deploy key", not "your whole machine".
 | Read your main distro, SSH keys or `gh` login | Separate distro filesystem; runs as unprivileged `claude` (UID 2501), no sudo, root locked |
 | Use the mic, speakers or screen | WSLg bridge unmounted at boot |
 | Reach your home network, VPN peers or laptop services | nftables rules for UID 2501: private/LAN/CGNAT ranges and sensitive local ports rejected; internet allowed |
-| Switch itself to "bypass permissions" | Managed policy `/etc/claude-code/managed-settings.json` (root-owned) |
 | Hog the laptop | cgroup caps: 6 GB RAM (5 GB soft), 4 CPU cores, 2000 processes |
 
 `box/harden.sh` runs at every box boot **and** before every Claude start; the

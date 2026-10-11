@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude Code with Remote Control, inside the isolated ClaudeBox distro.
 # The watchdog pipes this in as root. Claude itself runs as the unprivileged
-# "claude" user in auto permission mode, capped at 6 GB RAM / 4 CPU cores.
+# "claude" user with permission prompts skipped (the box is the sandbox), capped at 6 GB RAM / 4 CPU cores.
 # Usage: claude.sh start|check|stop
 set -u
 SESSION=claude-server
@@ -26,7 +26,9 @@ case "${1:-}" in
     echo "400000 100000" > "$CG/cpu.max"  # 4 cores
     echo 2000 > "$CG/pids.max"
     echo $$ > "$CG/cgroup.procs"          # tmux and Claude inherit the caps
-    as_claude "cd ~/work && tmux new-session -d -s $SESSION 'claude --remote-control --permission-mode auto'"
+    # Resume the last conversation; start fresh if there is none or it can't load.
+    CMD='claude --remote-control --dangerously-skip-permissions'
+    as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD --continue || $CMD'"
     ;;
   check)
     as_claude "tmux has-session -t $SESSION" 2>/dev/null
