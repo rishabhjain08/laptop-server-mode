@@ -1,6 +1,6 @@
 {
   "name": "claude",
-  "title": "Claude Code (Remote Control)",
+  "title": "Claude in ClaudeBox",
   "runsIn": "wsl",
   "wslDistro": "ClaudeBox",
   "wslUser": "root",

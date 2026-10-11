@@ -44,16 +44,21 @@ namespace LSM
     {
         public bool Dark, TaskbarDark;
         public Color Bg, Fg, Fg2, Hover, Line, Border, Accent, OnAccent, Good, Warn, Bad, Button, ButtonHover;
+        // Flyout surfaces (Windows 11 "settings card" layering).
+        public Color Base, Card, CardHover, CardBorder, Footer, OnStatus;
         public float Scale = 1f;
         public string IconFont, TextFont;
 
         public int Px(float v) { return (int)Math.Round(v * Scale); }
 
-        public static Theme Load(float scale)
+        public static Theme Load(float scale) { return Load(scale, null); }
+
+        // `dark` forces a theme (for previews); null follows Windows.
+        public static Theme Load(float scale, bool? dark)
         {
             var t = new Theme();
             t.Scale = scale;
-            t.Dark = ReadDword(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) == 0;
+            t.Dark = dark ?? ReadDword(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) == 0;
             t.TaskbarDark = ReadDword(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "SystemUsesLightTheme", 0) == 0;
 
             // AccentColor is stored as 0xAABBGGRR.
@@ -67,6 +72,8 @@ namespace LSM
                 t.Accent = Mix(accent, Color.White, 0.35f); t.OnAccent = Color.Black;
                 t.Good = Color.FromArgb(108, 203, 95); t.Warn = Color.FromArgb(252, 200, 60); t.Bad = Color.FromArgb(255, 153, 164);
                 t.Button = Color.FromArgb(55, 55, 55); t.ButtonHover = Color.FromArgb(65, 65, 65);
+                t.Base = Color.FromArgb(32, 32, 32); t.Card = Color.FromArgb(43, 43, 43); t.CardHover = Color.FromArgb(50, 50, 50);
+                t.CardBorder = Color.FromArgb(24, 24, 24); t.Footer = Color.FromArgb(28, 28, 28); t.OnStatus = Color.FromArgb(16, 16, 16);
             }
             else
             {
@@ -75,6 +82,8 @@ namespace LSM
                 t.Accent = accent; t.OnAccent = Color.White;
                 t.Good = Color.FromArgb(15, 123, 15); t.Warn = Color.FromArgb(157, 93, 0); t.Bad = Color.FromArgb(196, 43, 28);
                 t.Button = Color.FromArgb(255, 255, 255); t.ButtonHover = Color.FromArgb(243, 243, 243);
+                t.Base = Color.FromArgb(243, 243, 243); t.Card = Color.FromArgb(251, 251, 251); t.CardHover = Color.FromArgb(246, 246, 246);
+                t.CardBorder = Color.FromArgb(229, 229, 229); t.Footer = Color.FromArgb(238, 238, 238); t.OnStatus = Color.White;
             }
 
             t.IconFont = HasFont("Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
@@ -136,7 +145,7 @@ namespace LSM
         }
 
         // Icon-font glyph scaled to fill `box`, centred in a size x size bitmap.
-        static void FillGlyph(Graphics g, string font, string glyph, RectangleF box, Color c)
+        public static void FillGlyph(Graphics g, string font, string glyph, RectangleF box, Color c)
         {
             using (var fam = new FontFamily(font))
             using (var path = new GraphicsPath())
@@ -168,18 +177,6 @@ namespace LSM
             {
                 pad *= size;
                 FillGlyph(g, t.IconFont, glyph, new RectangleF(pad, pad, size - 2 * pad, size - 2 * pad), c);
-            }
-            return bmp;
-        }
-
-        public static Bitmap Dot(int size, Color c)
-        {
-            var bmp = new Bitmap(size, size);
-            using (var g = Smooth(bmp))
-            using (var br = new SolidBrush(c))
-            {
-                float d = size * 0.5f;
-                g.FillEllipse(br, (size - d) / 2, (size - d) / 2, d, d);
             }
             return bmp;
         }
@@ -222,94 +219,6 @@ namespace LSM
                 FillGlyph(g, t.IconFont, "\uE7F8", new RectangleF(pad, pad, size - 2 * pad, size - 2 * pad), Color.White);
             }
             return bmp;
-        }
-    }
-
-    // Menu renderer in the Windows 11 style: flat, rounded hover, toggle switch.
-    // Item roles are set through ToolStripItem.Name:
-    //   "toggle-on" / "toggle-off"  draws a switch in the shortcut column
-    //   "header"                    disabled but drawn in normal text color
-    //   "status-good|warn|bad|none" colors the shortcut column text
-    public class Renderer : ToolStripRenderer
-    {
-        readonly Theme t;
-        public Renderer(Theme theme) { t = theme; }
-
-        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) { e.Graphics.Clear(t.Bg); }
-        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) { }
-        protected override void OnRenderImageMargin(ToolStripRenderEventArgs e) { }
-
-        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
-        {
-            if (!e.Item.Selected || !e.Item.Enabled) return;
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            var r = new RectangleF(0, t.Px(1), e.Item.Width - 1, e.Item.Height - t.Px(2));
-            using (var p = Art.Round(r, t.Px(4)))
-            using (var br = new SolidBrush(t.Hover))
-                e.Graphics.FillPath(br, p);
-        }
-
-        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
-        {
-            var mi = e.Item as ToolStripMenuItem;
-            string role = e.Item.Name ?? "";
-            bool shortcut = mi != null && !string.IsNullOrEmpty(mi.ShortcutKeyDisplayString) && e.Text == mi.ShortcutKeyDisplayString;
-
-            if (shortcut && role.StartsWith("toggle"))
-            {
-                DrawSwitch(e.Graphics, e.TextRectangle, e.Item.Width - t.Px(12), role == "toggle-on");
-                return;
-            }
-            Color c = e.Item.Enabled || role == "header" ? t.Fg : t.Fg2;
-            if (shortcut && role == "status-good") c = t.Good;
-            if (shortcut && role == "status-warn") c = t.Warn;
-            if (shortcut && role == "status-bad") c = t.Bad;
-            if (shortcut && role == "status-none") c = t.Fg2;
-            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, e.TextRectangle, c, e.TextFormat);
-        }
-
-        void DrawSwitch(Graphics g, Rectangle area, float right, bool on)
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            float w = t.Px(40), h = t.Px(20);
-            var r = new RectangleF(right - w, area.Y + (area.Height - h) / 2f, w, h);
-            using (var p = Art.Round(r, h / 2))
-            {
-                if (on) using (var br = new SolidBrush(t.Accent)) g.FillPath(br, p);
-                else using (var pen = new Pen(t.Fg2, Math.Max(1f, t.Scale))) g.DrawPath(pen, p);
-            }
-            float knob = h * (on ? 0.6f : 0.5f);
-            float x = on ? r.Right - h / 2 - knob / 2 : r.X + h / 2 - knob / 2;
-            using (var br = new SolidBrush(on ? t.OnAccent : t.Fg2))
-                g.FillEllipse(br, x, r.Y + (h - knob) / 2, knob, knob);
-        }
-
-        protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
-        {
-            if (e.Image != null) e.Graphics.DrawImage(e.Image, e.ImageRectangle);
-        }
-
-        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) { OnRenderItemImage(e); }
-
-        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
-        {
-            int y = e.Item.Height / 2;
-            using (var pen = new Pen(t.Line, Math.Max(1f, t.Scale)))
-                e.Graphics.DrawLine(pen, t.Px(4), y, e.Item.Width - t.Px(4), y);
-        }
-
-        // Chevron that scales with DPI (the stock arrow stays 4px).
-        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
-        {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            float cx = e.ArrowRectangle.X + e.ArrowRectangle.Width / 2f, cy = e.ArrowRectangle.Y + e.ArrowRectangle.Height / 2f;
-            float a = t.Px(3.5f);
-            using (var pen = new Pen(t.Fg2, Math.Max(1f, t.Px(1.2f))))
-            {
-                pen.StartCap = pen.EndCap = LineCap.Round;
-                g.DrawLines(pen, new[] { new PointF(cx - a / 2, cy - a), new PointF(cx + a / 2, cy), new PointF(cx - a / 2, cy + a) });
-            }
         }
     }
 

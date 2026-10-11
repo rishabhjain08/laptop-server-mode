@@ -1,10 +1,11 @@
-# Tray icon: left-click toggles server mode, right-click opens the menu.
+# Tray icon: left-click toggles server mode, right-click opens the flyout.
 # Badge: green = ON, amber = paused by the battery rule, none = OFF.
 # -Preview battery shows the low-battery dialog on its own (for testing).
-param([string]$Preview)
+# -Preview flyout -Out <folder> saves PNGs of the flyout in both themes.
+param([string]$Preview, [string]$Out)
 Import-Module (Join-Path $PSScriptRoot 'ServerMode.psm1') -Force
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-Add-Type -Path (Join-Path $PSScriptRoot 'TrayUi.cs') -ReferencedAssemblies System.Windows.Forms, System.Drawing
+Add-Type -Path (Join-Path $PSScriptRoot 'TrayUi.cs'), (Join-Path $PSScriptRoot 'Flyout.cs') -ReferencedAssemblies System.Windows.Forms, System.Drawing
 
 $mutex = New-Object Threading.Mutex($false, 'Local\LaptopServerModeTray')
 if (-not $Preview -and -not $mutex.WaitOne(0)) { exit }
@@ -15,7 +16,6 @@ if (-not $Preview -and -not $mutex.WaitOne(0)) { exit }
 $AppTitle     = 'Laptop Server Mode'
 $AppId        = 'LaptopServerMode'
 $WatchdogTask = 'LaptopServerMode Watchdog'
-$Dot          = [string][char]0x00B7
 
 $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
 $Scale = $g.DpiX / 96
@@ -36,19 +36,7 @@ function Update-Theme {
         battery = [LSM.Art]::Tray($t, $size, $t.Warn, $false)
         off     = [LSM.Art]::Tray($t, $size, $null, $true)
     }
-    $glyph = { param($code, $color) [LSM.Art]::Glyph($t, [string][char]$code, $t.Px(16), $color, 0.14) }
-    $script:img = @{
-        power   = & $glyph 0xE7E8 $t.Fg
-        powerOn = & $glyph 0xE7E8 $t.Accent
-        apps    = & $glyph 0xE71D $t.Fg
-        moon    = & $glyph 0xE708 $t.Fg
-        folder  = & $glyph 0xE838 $t.Fg
-        warn    = & $glyph 0xE7BA $t.Warn
-        stop    = & $glyph 0xE71A $t.Bad
-        close   = & $glyph 0xE711 $t.Fg
-        check   = & $glyph 0xE73E $t.Accent
-        blank   = New-Object Drawing.Bitmap $t.Px(16), $t.Px(16)
-    }
+    if ($script:flyout) { $flyout.SetTheme($t) }
 
     # Notification identity: shows as "Laptop Server Mode" with our tile, not "Windows PowerShell".
     $tile = Join-Path $PSScriptRoot 'app.png'
@@ -58,27 +46,6 @@ function Update-Theme {
     Set-ItemProperty $reg DisplayName $AppTitle
     Set-ItemProperty $reg IconUri $tile
     $true
-}
-
-function Set-MenuStyle {
-    param($Menu)
-    $Menu.Renderer = New-Object LSM.Renderer $T
-    $Menu.BackColor = $T.Bg
-    $Menu.Font = $T.Font(9)
-    $Menu.ImageScalingSize = New-Object Drawing.Size $T.Px(16), $T.Px(16)
-    $Menu.Padding = New-Object Windows.Forms.Padding $T.Px(4), $T.Px(4), $T.Px(4), $T.Px(4)
-    $Menu.ShowCheckMargin = $false
-    $Menu.ShowImageMargin = $true
-}
-
-function New-Item2 {
-    param([string]$Text, $Image, [scriptblock]$OnClick, [string]$Role = '')
-    $i = New-Object Windows.Forms.ToolStripMenuItem $Text
-    $i.Image = $Image
-    $i.Name = $Role
-    $i.Padding = New-Object Windows.Forms.Padding $T.Px(2), $T.Px(5), $T.Px(2), $T.Px(5)
-    if ($OnClick) { $i.add_Click($OnClick) }
-    $i
 }
 
 # ---------------------------------------------------------------- notifications
@@ -174,14 +141,9 @@ function Test-WatchdogAlive {
     ((Get-Date) - [datetime]$State.heartbeat).TotalSeconds -lt $limit
 }
 
-function Get-PowerText {
-    param($State)
-    if ($State.onAC) { "plugged in, $($State.battery)%" } else { "on battery, $($State.battery)%" }
-}
-
 $script:lastReason = $null
 function Update-Tray {
-    if (Update-Theme) { Build-Menu }
+    [void](Update-Theme)
     $s = Get-State
     $alive = Test-WatchdogAlive $s
     # Without the watchdog, the tray applies the battery rule itself.
@@ -195,15 +157,8 @@ function Update-Tray {
     }
     $tray.Text = $tip.Substring(0, [math]::Min(63, $tip.Length))
 
-    $miToggle.Name  = if ($s.enabled) { 'toggle-on' } else { 'toggle-off' }
-    $miToggle.Image = if ($s.reason -eq 'on') { $img.powerOn } else { $img.power }
-    $miStatus.Text = switch ($s.reason) {
-        'on'      { "Lid and sleep ignored $Dot $(Get-PowerText $s)" }
-        'battery' { "Paused at $($s.battery)% $Dot resumes when plugged in" }
-        default   { "Normal power settings $Dot $(Get-PowerText $s)" }
-    }
-    $miWatchdog.Visible = -not $alive
-    $menu.Invalidate()
+    $script:watchdogDown = -not $alive
+    if ($flyout.Visible) { Update-Flyout $s }
 
     if ($script:lastReason -and $s.reason -ne $script:lastReason -and -not $script:userToggled) {
         switch ($s.reason) {
@@ -240,84 +195,84 @@ function Invoke-Safely {
     try { & $Action } catch { Write-Log "Tray error: $_" 'tray'; Show-Note 'Something went wrong' "$_" }
 }
 
-# ---------------------------------------------------------------- menu
+# ---------------------------------------------------------------- flyout
 
-$menu = New-Object Windows.Forms.ContextMenuStrip
-$menu.add_Opened({ [LSM.Win]::Style($menu.Handle, $T) })
+$script:watchdogDown = $false
 
-function Build-Menu {
-    Set-MenuStyle $menu
-    $menu.Items.Clear()
-
-    $script:miToggle = New-Item2 'Server mode' $img.power { Invoke-Safely { Switch-ServerMode } } 'toggle-off'
-    $miToggle.Font = $T.Font(10, 'Bold')
-    $miToggle.ShortcutKeyDisplayString = '          '   # room for the switch
-    $miToggle.Padding = New-Object Windows.Forms.Padding $T.Px(2), $T.Px(6), $T.Px(2), 0
-    $script:miStatus = New-Item2 '' $img.blank $null
-    $miStatus.Enabled = $false
-    $miStatus.Font = $T.Font(8.5)
-    $miStatus.Padding = New-Object Windows.Forms.Padding $T.Px(2), 0, $T.Px(2), $T.Px(4)
-
-    $script:miServices = New-Item2 'Services' $img.apps $null
-    Set-MenuStyle $miServices.DropDown
-    $miServices.DropDown.add_Opened({ [LSM.Win]::Style($miServices.DropDown.Handle, $T) })
-    [void]$miServices.DropDownItems.Add('(loading)')
-
-    $script:miWatchdog = New-Item2 'Start watchdog' $img.warn {
-        Invoke-Safely { Start-ScheduledTask -TaskName $WatchdogTask; Show-Note 'Starting watchdog' 'Server mode checks will resume in a few seconds.' }
+function Update-Flyout {
+    param($State = (Get-State))
+    $flyout.ServerOn = $State.enabled
+    $flyout.Reason = $State.reason
+    $flyout.Battery = [int]$State.battery
+    $flyout.OnAC = [bool]$State.onAC
+    $flyout.NoBattery = (Get-PowerStatus).noBattery
+    $flyout.WatchdogDown = $watchdogDown
+    $flyout.Services.Clear()
+    foreach ($svc in @(Get-Services)) {
+        $st = $State.serviceStatus.PSObject.Properties[$svc.name]
+        $row = New-Object LSM.FlyoutService
+        $row.Name = $svc.name
+        $row.Title = $svc.title
+        $row.On = Test-ServiceEnabled $svc $State
+        $row.Status = if ($st) { $st.Value.status } else { 'stopped' }
+        $flyout.Services.Add($row)
     }
-
-    $menu.Items.AddRange(@(
-        $miToggle, $miStatus,
-        (New-Object Windows.Forms.ToolStripSeparator),
-        $miServices,
-        (New-Item2 'Stop all services now' $img.stop {
-            Invoke-Safely {
-                Stop-AllServices
-                Show-Note 'All services stopped' 'Claude and other services are off. Turn them back on from Services.'
-            }
-        }),
-        (New-Item2 'Turn screen off now' $img.moon { [LSM.Win]::ScreenOff() }),
-        (New-Item2 'Open logs' $img.folder { Start-Process explorer.exe (Join-Path $PSScriptRoot 'logs') }),
-        $miWatchdog,
-        (New-Object Windows.Forms.ToolStripSeparator),
-        (New-Item2 'Quit tray' $img.close { $tray.Visible = $false; [Windows.Forms.Application]::Exit() })
-    ))
-    $menu.MinimumSize = New-Object Drawing.Size $T.Px(280), 0
+    $flyout.Relayout()
 }
 
-# Services list is rebuilt every time the menu opens.
-$menu.add_Opening({
-    Invoke-Safely {
-        $s = Get-State
-        $dd = $miServices.DropDownItems
-        $dd.Clear()
-        foreach ($svc in @(Get-Services)) {
-            $on = Test-ServiceEnabled $svc $s
-            $st = $s.serviceStatus.PSObject.Properties[$svc.name]
-            $status = if ($st) { $st.Value.status } else { 'stopped' }
-            $role = switch ($status) { 'running' { 'status-good' } 'failing' { 'status-bad' } 'needs-setup' { 'status-warn' } default { 'status-none' } }
-            if ($status -eq 'needs-setup') { $status = 'needs sign-in' }
-            $item = New-Item2 $svc.title $(if ($on) { $img.check } else { $img.blank }) $null $role
-            $item.ShortcutKeyDisplayString = (Get-Culture).TextInfo.ToTitleCase($status)
-            $item.Tag = @{ name = $svc.name; on = $on }
-            $item.add_Click({ Invoke-Safely { Set-ServiceEnabled $this.Tag.name (-not $this.Tag.on) } })
-            [void]$dd.Add($item)
+function Invoke-FlyoutAction {
+    param([string]$Action, [string]$Arg)
+    switch ($Action) {
+        'toggle'    { Switch-ServerMode }
+        'service'   { $on = Test-ServiceEnabled (Get-Services | Where-Object name -eq $Arg) (Get-State); Set-ServiceEnabled $Arg (-not $on) }
+        'watchdog'  { Start-ScheduledTask -TaskName $WatchdogTask; Show-Note 'Restarting background checks' 'Server mode checks resume in a few seconds.' }
+        'stopall'   {
+            Stop-AllServices
+            Show-Note 'All services stopped' 'Turn them back on from the tray icon when you need them.'
         }
-        if ($dd.Count -eq 0) { $none = $dd.Add('No services installed'); $none.Enabled = $false }
+        'screenoff' { [LSM.Win]::ScreenOff() }
+        'logs'      { Start-Process explorer.exe (Join-Path $PSScriptRoot 'logs') }
+        'quit'      { $tray.Visible = $false; [Windows.Forms.Application]::Exit(); return }
     }
-})
+    if ($flyout.Visible) { Update-Flyout }
+}
+
+[void](Update-Theme)
+$flyout = New-Object LSM.Flyout $T
+$flyout.add_ActionRequested({ param($sender, $e) Invoke-Safely { Invoke-FlyoutAction $e.Action $e.Arg } })
+$flyout.add_VisibleChanged({ if (-not $flyout.Visible) { [LSM.Win]::Trim() } })
+
+function Show-Flyout {
+    # A right-click that closed the flyout (by taking focus) shouldn't reopen it.
+    if ($flyout.Visible -or ((Get-Date) - $flyout.HiddenAt).TotalMilliseconds -lt 300) { $flyout.HideFlyout(); return }
+    Update-Flyout
+    $flyout.ShowAt([Windows.Forms.Cursor]::Position)
+}
 
 # ---------------------------------------------------------------- start
 
-[void](Update-Theme)
 if ($Preview -eq 'battery') { Show-BatteryDialog 28 35 -NoWait; exit }
+if ($Preview -eq 'flyout') {
+    foreach ($dark in $true, $false) {
+        $flyout.SetTheme([LSM.Theme]::Load($Scale, $dark))
+        $name = if ($dark) { 'dark' } else { 'light' }
+        Update-Flyout
+        $flyout.SavePreview((Join-Path $Out "flyout-$name.png"), -1)
+        foreach ($case in 'battery', 'off') {
+            $flyout.Reason = $case; $flyout.ServerOn = $case -ne 'off'; $flyout.WatchdogDown = $case -eq 'off'
+            $flyout.Services[0].Status = if ($case -eq 'off') { 'needs-setup' } else { 'failing' }
+            $flyout.SavePreview((Join-Path $Out "flyout-$name-$case.png"), 1)
+        }
+    }
+    exit
+}
 $tray = New-Object Windows.Forms.NotifyIcon
 $tray.Icon = $icons.off
 $tray.Text = $AppTitle
-$tray.ContextMenuStrip = $menu
-$tray.add_MouseClick({ if ($_.Button -eq 'Left') { Invoke-Safely { Switch-ServerMode } } })
-Build-Menu
+$tray.add_MouseClick({
+    if ($_.Button -eq 'Left') { Invoke-Safely { Switch-ServerMode } }
+    if ($_.Button -eq 'Right') { Invoke-Safely { Show-Flyout } }
+})
 $tray.Visible = $true
 
 # First run only: pin the icon next to the clock instead of the hidden overflow.
@@ -346,6 +301,5 @@ $timer.Start()
 Invoke-Safely { Update-Tray }
 Write-Log "Tray started (pid $PID)" 'tray'
 [LSM.Win]::Trim()
-$menu.add_Closed({ [LSM.Win]::Trim() })
 [Windows.Forms.Application]::Run()
 $tray.Dispose()
