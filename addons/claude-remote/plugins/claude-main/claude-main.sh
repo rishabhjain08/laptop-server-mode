@@ -24,6 +24,29 @@ export WSL_INTEROP=/run/WSL/1_interop
 
 has() { tmux has-session -t "=$NAME" 2>/dev/null; }
 
+# Remote Control tries once to reconnect a resumed conversation and gives up
+# if that fails (seen right after boot). If the conversation's last Remote
+# Control event is a disconnect, run /remote-control in it: at most once a
+# minute, and only while Claude is idle at its prompt.
+pane() { tmux capture-pane -p -t "=$NAME:"; }
+key() { tmux send-keys -t "=$NAME:" "$@"; }
+rc_heal() {
+  local f stamp
+  f=$(ls "$HOME"/.claude/projects/*/"$(cat "$IDFILE" 2>/dev/null)".jsonl 2>/dev/null | head -1)
+  [ -n "$f" ] || return 0
+  grep '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' |
+    tail -1 | grep -q '"content":"Remote Control disconnected' || return 0
+  # After a disconnect, /remote-control asks to confirm; option 1 is selected.
+  if pane | grep -q 'Enable Remote Control'; then key Enter; echo "Remote Control: confirmed reconnect"; return 0; fi
+  stamp="$(dirname "$IDFILE")/rc-heal"
+  [ -n "$(find "$stamp" -mmin -1 2>/dev/null)" ] && return 0
+  pane | grep -q 'esc to interrupt' && return 0
+  touch "$stamp"
+  key -l '/remote-control'; sleep 1; key Enter; sleep 2
+  pane | grep -q 'Enable Remote Control' && key Enter
+  echo "Remote Control was disconnected; ran /remote-control"
+}
+
 case "${1:-}" in
   start)
     has && exit 0
@@ -43,7 +66,8 @@ case "${1:-}" in
     tmux new-session -d -s "$NAME" -c "$DIR" "$CMD $SESSION || $CMD"
     ;;
   check)
-    has
+    has || exit 1
+    rc_heal
     ;;
   stop)
     tmux kill-session -t "=$NAME" 2>/dev/null   # only this session, not your tmux

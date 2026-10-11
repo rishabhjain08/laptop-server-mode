@@ -205,8 +205,9 @@ function Sync-Services {
             } elseif (-not $stopIt) {
                 $st.status = if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) { 'running' } else { 'stopped' }
             }
-        } elseif ((Invoke-ServiceVerb $svc 'check').Code -eq 0) {
+        } elseif (($chk = Invoke-ServiceVerb $svc 'check').Code -eq 0) {
             if ($st.status -ne 'running') { Write-Log "[$name] running" }
+            if ($chk.Output) { Write-Log "[$name] $($chk.Output)" }   # a healthy check may report what it fixed
             $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
         } elseif (-not $st.retryAt -or $now -ge [datetime]$st.retryAt) {
             $r = Invoke-ServiceVerb $svc 'start'
