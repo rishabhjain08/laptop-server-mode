@@ -44,6 +44,15 @@ tar -C "$REPO/box" -cf - wsl.conf harden.sh managed-settings.json |
   (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -c 'mkdir -p /tmp/lsm && tar -C /tmp/lsm -xf -')
 (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -s) < "$REPO/box/setup.sh"
 (cd /mnt/c && "$WSL" --terminate "$BOX" >/dev/null)   # restart so wsl.conf applies
+echo "==> Shared agent rules: /etc/claude-code/CLAUDE.md in $BOX and $DISTRO"
+put_rules='install -d -m 0755 /etc/claude-code && cat > /etc/claude-code/AGENTS.md && chmod 0644 /etc/claude-code/AGENTS.md && ln -sfn AGENTS.md /etc/claude-code/CLAUDE.md'
+sed "s/__MAIN_DISTRO__/$DISTRO/g" "$REPO/box/AGENTS.md" |
+  (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -c "$put_rules")
+if sudo -n true 2>/dev/null; then
+  sed "s/__MAIN_DISTRO__/$DISTRO/g" "$REPO/box/AGENTS.md" | sudo -n bash -c "$put_rules"
+else
+  echo "    Skipped in $DISTRO (needs sudo). Run: sed 's/__MAIN_DISTRO__/$DISTRO/g' box/AGENTS.md | sudo bash -c '$put_rules'"
+fi
 echo "==> $BOX self-test"
 (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -s) < "$REPO/box/selftest.sh" | tr -d '\r'
 

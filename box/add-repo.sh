@@ -38,6 +38,30 @@ else
   rm -f "$KEYFILE"
 fi
 
+# Note: this ruleset does NOT stop ClaudeBox. GitHub attributes deploy-key
+# pushes to the repo owner (an admin), so they bypass it like you do; it only
+# logs bypasses under Settings > Rules > Insights. The "never push to main"
+# rule that matters is in /etc/claude-code/CLAUDE.md (box/AGENTS.md).
+if [ -z "$RO" ] && [ "$(gh repo view "$REPO" --json visibility --jq .visibility)" = PUBLIC ]; then
+  if gh api "repos/$REPO/rulesets" --jq '.[].name' | grep -qx "Protect main from ClaudeBox"; then
+    echo "==> Main-branch ruleset already present"
+  else
+    echo "==> Adding ruleset: only admins can push to the default branch"
+    gh api -X POST "repos/$REPO/rulesets" --input - >/dev/null <<'JSON'
+{
+  "name": "Protect main from ClaudeBox",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [ { "type": "update" }, { "type": "deletion" }, { "type": "non_fast_forward" } ],
+  "bypass_actors": [ { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" } ]
+}
+JSON
+  fi
+else
+  echo "==> No ruleset (private or read-only repo); AGENTS.md rules apply"
+fi
+
 echo "==> Cloning into ClaudeBox:~/work/$NAME"
 box <<BOX
 set -e
