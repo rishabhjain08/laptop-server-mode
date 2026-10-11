@@ -26,6 +26,9 @@ case "${1:-}" in
     echo "400000 100000" > "$CG/cpu.max"  # 4 cores
     echo 2000 > "$CG/pids.max"
     echo $$ > "$CG/cgroup.procs"          # tmux and Claude inherit the caps
+    # A tmux server you started by hand (e.g. the WezTerm shortcut) would
+    # spawn Claude outside the caps, so move it in first.
+    pid=$(as_claude "tmux display-message -p '#{pid}'" 2>/dev/null) && echo "$pid" > "$CG/cgroup.procs"
     # Resume the last conversation; start fresh if there is none or it can't load.
     CMD='claude --remote-control --dangerously-skip-permissions'
     as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD --continue || $CMD'"
