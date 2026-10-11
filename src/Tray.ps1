@@ -18,7 +18,11 @@ if (-not $Preview -and -not $mutex.WaitOne(0)) { exit }
 [Windows.Forms.Application]::EnableVisualStyles()
 
 $AppTitle     = 'Laptop Server Mode'
-$AppId        = 'LaptopServerMode'
+# Notification identity. Each fresh install gets its own id (app.id, written by
+# Install-Tasks.ps1): Windows caches an id's name and icon, and an uninstall can
+# leave it cached without them, showing "LaptopServerMode" and no icon.
+$idFile = Join-Path $PSScriptRoot 'app.id'
+$AppId  = if (Test-Path $idFile) { (Get-Content $idFile -Raw).Trim() } else { 'LaptopServerMode' }
 $WatchdogTask = 'LaptopServerMode Watchdog'
 
 $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero)

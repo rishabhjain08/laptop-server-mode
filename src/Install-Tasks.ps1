@@ -66,6 +66,9 @@ Register-ScheduledTask -TaskName $shutdownTask -Force `
     -Trigger $onShutdown `
     -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
 
+# Notification identity for this install (see Tray.ps1); kept across updates.
+if (-not (Test-Path "$dir\app.id")) { "LaptopServerMode.$(Get-Date -Format yyyyMMddHHmmss)" | Set-Content "$dir\app.id" -Encoding ASCII }
+
 # Start menu shortcut: brings the tray back after "Quit tray".
 $lnk = New-Object -ComObject WScript.Shell
 $sc = $lnk.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Server Mode.lnk'))

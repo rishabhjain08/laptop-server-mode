@@ -14,7 +14,9 @@ Get-CimInstance Win32_Process | Where-Object {
     ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog|KeepAwake)\.ps1') -or
     ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Remove-Item 'HKCU:\Software\Classes\AppUserModelId\LaptopServerMode' -Recurse -ErrorAction SilentlyContinue
+$ids = @('LaptopServerMode')
+if (Test-Path "$dir\app.id") { $ids += (Get-Content "$dir\app.id" -Raw).Trim() }
+foreach ($id in $ids) { Remove-Item "HKCU:\Software\Classes\AppUserModelId\$id" -Recurse -ErrorAction SilentlyContinue }
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Server Mode.lnk') -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path $dir 'ServerMode.psm1') -Force
