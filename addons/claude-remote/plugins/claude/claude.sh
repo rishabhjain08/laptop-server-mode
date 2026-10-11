@@ -56,6 +56,9 @@ case "${1:-}" in
     # A tmux server you started by hand (e.g. the WezTerm shortcut) would
     # spawn Claude outside the caps, so move it in first.
     pid=$(as_claude "tmux display-message -p '#{pid}'" 2>/dev/null) && echo "$pid" > "$CG/cgroup.procs"
+    # Right after boot the network can lag behind; Claude then fails its one
+    # Remote Control reconnect and its update check. Wait up to 40 s for it.
+    for _ in $(seq 10); do curl -s -o /dev/null --max-time 2 https://api.anthropic.com && break; sleep 2; done
     # Resume the last conversation; start fresh if there is none or it can't load.
     CMD='claude --remote-control --dangerously-skip-permissions'
     as_claude "cd ~/work && tmux new-session -d -s $SESSION '$CMD --continue || $CMD'"

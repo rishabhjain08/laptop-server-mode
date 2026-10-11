@@ -59,6 +59,9 @@ case "${1:-}" in
     has && exit 0
     command -v claude >/dev/null || { echo "Claude Code isn't installed in this distro" >&2; exit 3; }
     [ -s "$HOME/.claude/.credentials.json" ] || { echo "Claude isn't signed in. Run: claude" >&2; exit 3; }
+    # Right after boot the network can lag behind; Claude then fails its one
+    # Remote Control reconnect and its update check. Wait up to 40 s for it.
+    for _ in $(seq 10); do curl -s -o /dev/null --max-time 2 https://api.anthropic.com && break; sleep 2; done
     CMD="claude -n '$NAME' --remote-control '$NAME' $FLAGS"
     # Resume the most recent conversation; start a fresh one if there is none
     # or it can't be resumed, rather than loop.
