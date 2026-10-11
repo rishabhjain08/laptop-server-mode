@@ -15,7 +15,9 @@ A tray toggle for Windows laptops that keeps the laptop working as a server (lid
 | Power override | Turning ON copies your *current* power plan into a temporary plan that changes only lid close (do nothing), sleep, hibernate and unattended sleep (never). Turning OFF switches back to your plan and deletes the copy. Your own plans are never edited. |
 | Battery rule | On battery, server mode pauses at 35% (configurable) and your normal settings take over. It resumes when you plug in. If the battery is already below the limit when you turn it on, you're asked to plug in first, with an option to continue anyway. |
 | Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, keeps WSL running and restarts services that stop. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
-| Tray | Starts when you sign in. Green = ON, amber = paused by battery, grey = OFF. Left-click to toggle; right-click for services, "turn screen off now" and logs. |
+| Tray | Starts when you sign in. A laptop icon styled like the built-in tray icons, with a green badge when ON, an amber badge when paused by battery, and no badge when OFF. Left-click to toggle; right-click for the menu. |
+
+The tray follows Windows 11's look: light and dark themes, your accent color, high-DPI, rounded menu with a toggle switch, and notifications that show as "Laptop Server Mode". On first run it pins its icon next to the clock (unpin it any time in Taskbar settings).
 
 Note: any power-setting change you make while server mode is ON goes to the temporary plan and is discarded when you turn it OFF.
 
@@ -98,6 +100,12 @@ Connect from the Claude app or claude.ai, or over SSH: `tmux attach -t claude-se
 - Logs: tray menu > **Open logs**, or `%LOCALAPPDATA%\LaptopServerMode\logs`.
 - If the tray shows "watchdog down", use tray menu > **Start watchdog** or re-run `./install.sh`.
 - To return to normal power immediately, turn server mode OFF, or run `./uninstall.sh`.
+
+## Development
+
+- Edit files in `src/` and `services/`, then re-run `./install.sh` to deploy.
+- Preview the low-battery dialog without unplugging: run `Tray.ps1 -Preview battery` from the install folder.
+- UI code (theme, icons, menu renderer) is in `src/TrayUi.cs` and is compiled when the tray starts, so the repo contains no binaries.
 
 ## License
 

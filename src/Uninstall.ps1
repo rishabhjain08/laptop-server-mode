@@ -10,6 +10,12 @@ foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray') {
     }
 }
 
+Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog)\.ps1') -or
+    ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Remove-Item 'HKCU:\Software\Classes\AppUserModelId\LaptopServerMode' -Recurse -ErrorAction SilentlyContinue
+
 Import-Module (Join-Path $dir 'ServerMode.psm1') -Force
 Update-State { param($s) $s.enabled = $false; Disable-PowerOverride $s; $s } | Out-Null
 Remove-Module ServerMode

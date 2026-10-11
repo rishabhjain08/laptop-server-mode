@@ -13,6 +13,12 @@ $names = 'LaptopServerMode Watchdog', 'LaptopServerMode Tray'
 foreach ($n in $names) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $n }
 }
+# Stopping a task doesn't stop its children (the tray runs under conhost,
+# the watchdog owns a WSL keep-alive), so end leftovers explicitly.
+Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog)\.ps1') -or
+    ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `
