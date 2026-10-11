@@ -29,7 +29,7 @@ rc_heal() {
   local f
   f=$(ls -t /home/claude/.claude/projects/-home-claude-work/*.jsonl 2>/dev/null | head -1)
   [ -n "$f" ] || return 0
-  grep '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' |
+  grep -a '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' |
     tail -1 | grep -q '"content":"Remote Control disconnected' || return 0
   # After a disconnect, /remote-control asks to confirm ("1. Enable Remote
   # Control", "2. Never mind"); option 1 is selected.
