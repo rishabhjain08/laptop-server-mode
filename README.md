@@ -131,6 +131,25 @@ Rebuild from scratch: `./uninstall.sh --remove-box && ./install.sh`.
 
 Watch it work: `wsl -d ClaudeBox -- tmux attach -t claude-server` (detach with Ctrl-b d).
 
+### Claude in your main distro (optional, off by default)
+
+`services/claude-main` keeps one named Claude conversation running in your
+**main** distro, in tmux, with Remote Control. After a restart it resumes the
+same conversation (`--resume` with a saved session ID) and the same Remote
+Control link. It runs as you with full access (keys, `gh`, Windows), so it is
+**off by default**: enable it in the tray's **Services** menu.
+
+Settings in `~/.config/laptop-server-mode/claude-main.env`:
+
+```bash
+NAME=my-laptop                            # tmux session, Remote Control and /resume name
+DIR=$HOME/projects                        # must be a trusted folder (Claude never saves trust for $HOME)
+FLAGS="--dangerously-skip-permissions"    # optional
+```
+
+Open it with `tmux attach -t my-laptop` (or `Ctrl-b s` inside tmux). Stopping it
+kills only that tmux session, never your other ones.
+
 ## Remote access (optional)
 
 - **Tailscale** on Windows for a private network to the laptop. With WSL [mirrored networking](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking), SSH into WSL at the laptop's Tailscale IP. You may need to allow the port through the Hyper-V firewall (elevated PowerShell):

@@ -1,0 +1,8 @@
+{
+  "name": "claude-main",
+  "title": "Claude in main distro (full access)",
+  "runsIn": "wsl",
+  "script": "claude-main.sh",
+  "enabledByDefault": false,
+  "stopWhenServerModeOff": false
+}
