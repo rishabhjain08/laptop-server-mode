@@ -3,7 +3,7 @@
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
 
-foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode Shutdown', 'LaptopServerMode KeepAwake', 'LaptopServerMode WSL Start') {
+foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode Shutdown', 'LaptopServerMode KeepAwake') {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $n
         Unregister-ScheduledTask -TaskName $n -Confirm:$false
