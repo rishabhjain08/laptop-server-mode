@@ -118,6 +118,13 @@ box/add-repo.sh owner/repo --read-only
 The private key is generated inside ClaudeBox and never leaves it. Revoke in
 GitHub > repo > Settings > Deploy keys > "ClaudeBox".
 
+**Working on the same repo from both distros:** each has its own clone and they
+sync only through GitHub. `install.sh` puts shared rules (`box/AGENTS.md`) at
+`/etc/claude-code/CLAUDE.md` in both distros, so each Claude knows about the
+other: ClaudeBox branches from fresh `main`, works on `claude/<task>` and never
+pushes `main`; you review and merge. Don't mount one distro's files in the other:
+git hooks and configs planted by the box would then run as you.
+
 **Kill switch:** tray menu > **Stop all services now** disables every service
 and shuts ClaudeBox down instantly. From SSH: `wsl.exe --terminate ClaudeBox`.
 Rebuild from scratch: `./uninstall.sh --remove-box && ./install.sh`.
