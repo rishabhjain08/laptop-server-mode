@@ -22,19 +22,23 @@ ready() {
 # once a minute, and only while Claude is idle at its prompt.
 pane() { as_claude "tmux capture-pane -p -t $SESSION"; }
 key() { as_claude "tmux send-keys -t $SESSION $*"; }
+# Only the last lines: the menu and the status bar live there, while
+# older conversation text further up may mention the same words.
+bottom() { pane | grep -v '^[[:space:]]*$' | tail -4; }
 rc_heal() {
   local f
   f=$(ls -t /home/claude/.claude/projects/-home-claude-work/*.jsonl 2>/dev/null | head -1)
   [ -n "$f" ] || return 0
   grep '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' |
     tail -1 | grep -q '"content":"Remote Control disconnected' || return 0
-  # After a disconnect, /remote-control asks to confirm; option 1 is selected.
-  if pane | grep -q 'Enable Remote Control'; then key Enter; echo "Remote Control: confirmed reconnect"; return 0; fi
+  # After a disconnect, /remote-control asks to confirm ("1. Enable Remote
+  # Control", "2. Never mind"); option 1 is selected.
+  if bottom | grep -q 'Never mind'; then key Enter; echo "Remote Control: confirmed reconnect"; return 0; fi
   [ -n "$(find /run/claude-rc-heal -mmin -1 2>/dev/null)" ] && return 0
-  pane | grep -q 'esc to interrupt' && return 0
+  bottom | grep -q 'esc to interrupt' && return 0
   touch /run/claude-rc-heal
   key -l /remote-control; sleep 1; key Enter; sleep 2
-  pane | grep -q 'Enable Remote Control' && key Enter
+  bottom | grep -q 'Never mind' && key Enter
   echo "Remote Control was disconnected; ran /remote-control"
 }
 
