@@ -185,7 +185,12 @@ function Invoke-Hooks {
 function Sync-Services {
     param($State)
     $now = Get-Date
-    foreach ($svc in @(Get-Services)) {
+    $services = @(Get-Services)
+    # Forget the status of services whose plugin was removed.
+    foreach ($p in @($State.serviceStatus.PSObject.Properties)) {
+        if (@($services | Where-Object name -eq $p.Name).Count -eq 0) { $State.serviceStatus.PSObject.Properties.Remove($p.Name) }
+    }
+    foreach ($svc in $services) {
         $name   = $svc.name
         $prev   = $State.serviceStatus.PSObject.Properties[$name]
         $st     = if ($prev) { $prev.Value } else { [pscustomobject]@{ status = 'stopped'; failures = 0; retryAt = $null } }

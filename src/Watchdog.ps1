@@ -12,6 +12,19 @@ $hookNames  = @{ on = 'server-on'; battery = 'server-paused'; off = 'server-off'
 $stateNames = @{ on = 'on'; battery = 'paused'; off = 'off' }
 
 Write-Log "Watchdog started (pid $PID, user $env:USERNAME)"
+
+# Adopt keep-alives left by a previous watchdog (it may have crashed), so
+# restarts don't pile up WSL processes. Killing the System32 wsl.exe stub
+# also ends the real wsl.exe it starts.
+foreach ($p in Get-CimInstance Win32_Process -Filter "Name='wsl.exe'") {
+    if ($p.ExecutablePath -notlike '*\System32\wsl.exe' -or $p.CommandLine -notmatch '-d (\S+) -- sleep infinity') { continue }
+    $d = $Matches[1]
+    $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+    if (-not $proc) { continue }
+    if ($keepAlive[$d]) { $proc.Kill(); continue }
+    $keepAlive[$d] = $proc
+    Write-Log "WSL keep-alive adopted for $d (pid $($p.ProcessId))"
+}
 while ($true) {
     try {
         $conf  = Get-Config

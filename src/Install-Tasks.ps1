@@ -27,10 +27,15 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 
+# Task Scheduler's restart setting only covers a task that fails to start,
+# not one whose process dies later. This trigger starts the watchdog again
+# within 5 minutes if it ever exits (IgnoreNew skips it while it's running).
+$every5min = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 5)
+
 Register-ScheduledTask -TaskName $names[0] -Force -Settings $settings `
     -Description 'Laptop Server Mode: keeps server mode, WSL and services running across restarts.' `
     -Action (New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\Watchdog.ps1`"") `
-    -Trigger @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn -User $User)) `
+    -Trigger @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn -User $User), $every5min) `
     -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
 
 Register-ScheduledTask -TaskName $names[1] -Force -Settings $settings `
