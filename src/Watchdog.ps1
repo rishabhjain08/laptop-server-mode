@@ -39,6 +39,9 @@ while ($true) {
         }
         foreach ($f in $fire) { Invoke-Hooks $f[0] $f[1] }
 
+        # Before any wsl.exe of ours starts: see Repair-Wslg.
+        Repair-Wslg $conf.wslDistro
+
         # WSL stops a distro when no Windows process holds it open. Keep the
         # main distro up while server mode is ON, and each WSL service's
         # distro up while that service is enabled (services keep running

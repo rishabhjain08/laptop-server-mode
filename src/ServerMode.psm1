@@ -288,7 +288,65 @@ function Clear-WorkingSet {
 
 . (Join-Path $PSScriptRoot 'Plugins.ps1')
 
+# ---------------------------------------------------------------- WSLg
+
+# WSLg (Linux GUI apps, and the microphone for Claude's /voice) attaches to
+# the Windows session that started the WSL VM. After a boot before sign-in,
+# or a WSL restart, the watchdog's keep-alives start the VM in session 0,
+# which has no desktop, so there's no mic. Once someone signs in, restart WSL
+# and start it from their session first. Only when:
+#   - every WSLg client (msrdc) is in session 0 and the main distro has no mic,
+#   - no WSL terminal is open on the desktop (it would close),
+#   - no Claude in a running distro is busy (it resumes afterwards),
+#   - it wasn't tried yet for this sign-in.
+# The watchdog calls this before it starts any wsl.exe itself, and it waits
+# until WSLg is up in the desktop session, so nothing races it.
+$script:WslgProbe = @'
+mic=missing
+PULSE_SERVER=unix:/mnt/wslg/PulseServer pactl list short sources 2>/dev/null | grep -q RDPSource && mic=ok
+command -v pactl >/dev/null || mic=unknown
+busy=no
+for s in /root/.claude/sessions/*.json /home/*/.claude/sessions/*.json; do
+  [ -f "$s" ] && kill -0 "$(basename "$s" .json)" 2>/dev/null && grep -q '"status":"busy"' "$s" && busy=yes
+done
+echo "mic=$mic busy=$busy"
+'@
+$script:WslgTried = 0
+
+function Repair-Wslg {
+    param([string]$Distro)
+    if (-not $Distro) { return }
+    $desktop = Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -ne 0 | Select-Object -First 1
+    if (-not $desktop -or $script:WslgTried -eq $desktop.Id) { return }
+    $msrdc = @(Get-Process msrdc -ErrorAction SilentlyContinue)
+    if (-not $msrdc -or @($msrdc | Where-Object SessionId -ne 0)) { return }
+    if (@(Get-CimInstance Win32_Process -Filter "Name='wsl.exe'" | Where-Object SessionId -ne 0)) { return }
+    $running = (Invoke-Hidden $Wsl '--list --running --quiet').Output -split '\r?\n' | Where-Object { $_.Trim() }
+    if ($running -notcontains $Distro) { return }
+    foreach ($d in $running) {
+        $probe = Invoke-Hidden $Wsl "-d $($d.Trim()) -u root --cd / -- sh -s" -InputText $WslgProbe -TimeoutSec 20
+        if ($probe.Output -match 'busy=yes') { return }   # try again next round
+        if ($d.Trim() -eq $Distro -and $probe.Output -notmatch 'mic=missing') { $script:WslgTried = $desktop.Id; return }
+    }
+    $script:WslgTried = $desktop.Id
+    Write-Log "WSLg started in session 0 (no mic); restarting WSL from the desktop session"
+    Invoke-Hidden $Wsl '--shutdown' | Out-Null
+    $task = 'LaptopServerMode WSL Start'
+    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless $Wsl -d $Distro --exec sleep infinity"
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+    Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+    Start-ScheduledTask -TaskName $task
+    $until = (Get-Date).AddSeconds(90)
+    do {
+        Start-Sleep -Seconds 1
+        $ok = @(Get-Process msrdc -ErrorAction SilentlyContinue | Where-Object SessionId -eq $desktop.SessionId)
+    } until ($ok -or (Get-Date) -gt $until)
+    if ($ok) { Write-Log "WSLg is up in the desktop session" } else { Write-Log "WSLg didn't come up in the desktop session within 90 s" }
+}
+
 Export-ModuleMember -Function Write-Log, Get-Config, Get-State, Update-State, Set-ServerMode,
     Set-ServiceEnabled, Get-PowerStatus, Sync-ServerMode, Set-KeepAwake, Get-Services,
     Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet,
-    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb, Get-ServerModeDecision, Get-HookEvents
+    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb, Get-ServerModeDecision, Get-HookEvents, Repair-Wslg
