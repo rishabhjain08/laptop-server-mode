@@ -40,8 +40,22 @@ rc_heal() {
   local f stamp
   f=$(ls -t "$PROJECT"/*.jsonl 2>/dev/null | head -1)
   [ -n "$f" ] || return 0
-  grep -a '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' |
-    tail -1 | grep -q '"content":"Remote Control disconnected' || return 0
+  local last
+  last=$(grep -a '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' | tail -1)
+  case "$last" in *'"content":"Remote Control disconnected'*) ;; *) return 0;; esac
+  mkdir -p "$STATE"
+  # A refused session (HTTP 403, e.g. after this device was removed from the
+  # account, then "disabled after repeated failures") can't be fixed with
+  # /remote-control: the server won't reattach the resumed conversation. Start
+  # a fresh conversation instead (the old one stays on disk), at most hourly.
+  case "$last" in *'HTTP 403'*|*'disabled after repeated failures'*)
+    [ -n "$(find "$STATE/rc-fresh" -mmin -60 2>/dev/null)" ] && return 0
+    bottom | grep -q 'esc to interrupt' && return 0
+    touch "$STATE/rc-fresh" "$STATE/fresh-next"
+    tmux kill-session -t "=$NAME"
+    echo "Remote Control refused this conversation (HTTP 403); restarting with a fresh one"
+    return 0;;
+  esac
   # After a disconnect, /remote-control asks to confirm ("1. Enable Remote
   # Control", "2. Never mind"); option 1 is selected.
   if bottom | grep -q 'Never mind'; then key Enter; echo "Remote Control: confirmed reconnect"; return 0; fi
@@ -65,7 +79,12 @@ case "${1:-}" in
     CMD="claude -n '$NAME' --remote-control '$NAME' $FLAGS"
     # Resume the most recent conversation; start a fresh one if there is none
     # or it can't be resumed, rather than loop.
-    tmux new-session -d -s "$NAME" -c "$DIR" "$CMD --continue || $CMD"
+    if [ -f "$STATE/fresh-next" ]; then   # see rc_heal
+      rm -f "$STATE/fresh-next"
+      tmux new-session -d -s "$NAME" -c "$DIR" "$CMD"
+    else
+      tmux new-session -d -s "$NAME" -c "$DIR" "$CMD --continue || $CMD"
+    fi
     ;;
   check)
     has || exit 1
