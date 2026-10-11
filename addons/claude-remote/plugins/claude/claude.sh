@@ -26,8 +26,17 @@ key() { as_claude "tmux send-keys -t $SESSION $*"; }
 # older conversation text further up may mention the same words.
 bottom() { pane | grep -v '^[[:space:]]*$' | tail -4; }
 rc_heal() {
-  local f
-  f=$(ls -t /home/claude/.claude/projects/-home-claude-work/*.jsonl 2>/dev/null | head -1)
+  local f s
+  # The transcript of the Claude running in this tmux session (see
+  # ~/.claude/sessions/<pid>.json), not just the newest file: an older
+  # conversation's file gets touched too, and its stale 403 would kill a
+  # healthy session.
+  for s in /home/claude/.claude/sessions/*.json; do
+    grep -q "\"tmux\":\"$SESSION:" "$s" 2>/dev/null || continue
+    kill -0 "$(basename "$s" .json)" 2>/dev/null || continue
+    f=/home/claude/.claude/projects/-home-claude-work/$(grep -o '"sessionId":"[^"]*"' "$s" | cut -d'"' -f4).jsonl
+  done
+  [ -f "$f" ] || f=$(ls -t /home/claude/.claude/projects/-home-claude-work/*.jsonl 2>/dev/null | head -1)
   [ -n "$f" ] || return 0
   local last
   last=$(grep -a '"type":"system"' "$f" | grep -E '"subtype":"bridge_status"|"content":"Remote Control disconnected' | tail -1)
