@@ -26,7 +26,7 @@ Note: any power-setting change you make while server mode is ON goes to the temp
 
 - Windows 10/11 laptop (tested on Windows 11 Home with Modern Standby)
 - WSL 2 (for the installer and WSL plugins)
-- Admin rights once, to register the startup tasks
+- No admin rights needed (if Windows refuses, the installer asks for them)
 
 ## Install
 
@@ -35,7 +35,7 @@ From WSL:
 ```bash
 git clone https://github.com/rishabhjain08/laptop-server-mode.git
 cd laptop-server-mode
-./install.sh        # approve the Windows admin prompt
+./install.sh
 ```
 
 Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run `./install.sh` to update; your config, state and plugins are kept. To remove everything, run `./uninstall.sh`.
@@ -160,7 +160,10 @@ A few notes:
 ## Development
 
 - Edit files in `src/`, then re-run `./install.sh` to deploy.
-- `tests/run.sh` runs the automated tests on a temporary copy (no power or service changes): every combination of the server-mode rule, the keep-awake rule, hook events and the service lifecycle.
+- `tests/run.sh` runs the automated tests on a temporary copy (no power or service changes, no desktop needed):
+  - `Logic.Tests.ps1`: every combination of the server-mode rule, the keep-awake rule, hook events and the service lifecycle, plus damaged files and log rotation.
+  - `Tray.Tests.ps1`: runs the real tray and sends the flyout real mouse and keyboard input: toggling, service switches, stop all, the low-battery prompt's answers, notifications, the watchdog banner, themes and errors.
+- `tests/CUJS.md` lists every user journey and how each one is tested.
 - `src/Plugins.ps1` runs plugins; `src/ServerMode.psm1` handles power and state; `src/Flyout.cs` and `src/TrayUi.cs` draw the tray UI and are compiled when the tray starts, so the repo contains no binaries.
 - Preview the UI without clicking around (from the install folder):
   - `Tray.ps1 -Preview flyout -Out <folder>` saves PNGs of every flyout state in both themes.

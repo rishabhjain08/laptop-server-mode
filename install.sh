@@ -39,8 +39,11 @@ JSON
   echo "==> Created config.json (battery limit 35%, distro $DISTRO)"
 fi
 
-echo "==> Registering startup tasks for $WIN_USER (approve the Windows admin prompt)"
-"$PS" -NoProfile -Command "\$p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"$DEST_WIN\\Install-Tasks.ps1\" -User \"$WIN_USER\"'; exit \$p.ExitCode"
+echo "==> Registering startup tasks for $WIN_USER"
+"$PS" -NoProfile -ExecutionPolicy Bypass -File "$DEST_WIN\\Install-Tasks.ps1" -User "$WIN_USER" || {
+  echo "    Windows needs admin rights for that here; approve the admin prompt"
+  "$PS" -NoProfile -Command "\$p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"$DEST_WIN\\Install-Tasks.ps1\" -User \"$WIN_USER\"'; exit \$p.ExitCode"
+}
 
 echo "==> Done. Look for the laptop icon next to the clock."
 echo "    Add plugins with ./plugin.sh add <folder> (see examples/ and addons/)."

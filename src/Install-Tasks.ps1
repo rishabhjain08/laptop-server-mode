@@ -1,4 +1,5 @@
-# Registers the startup tasks. Run elevated; install.sh does this for you.
+# Registers the startup tasks and the Start menu shortcut. install.sh runs
+# this for you, without admin rights when Windows allows it.
 #   Watchdog: at boot, before sign-in. Uses S4U ("do not store password"),
 #             so no password is saved anywhere.
 #   KeepAwake: at boot, a second "keep the system awake" holder that doesn't
@@ -18,11 +19,11 @@ $shutdownTask = 'LaptopServerMode Shutdown'
 foreach ($n in $names) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $n }
 }
-# Stopping a task doesn't stop its children (the tray runs under conhost,
-# the watchdog owns a WSL keep-alive), so end leftovers explicitly.
+# Stopping a task doesn't stop its process tree (the tray runs under
+# conhost), so end leftovers explicitly. WSL keep-alives stay: the new
+# watchdog adopts them, so distros (and what runs in them) stay up.
 Get-CimInstance Win32_Process | Where-Object {
-    ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog|KeepAwake)\.ps1') -or
-    ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
+    $_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog|KeepAwake)\.ps1'
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -64,6 +65,15 @@ Register-ScheduledTask -TaskName $shutdownTask -Force `
     -Action (New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\Run-Hooks.ps1`" -Event shutdown") `
     -Trigger $onShutdown `
     -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
+
+# Start menu shortcut: brings the tray back after "Quit tray".
+$lnk = New-Object -ComObject WScript.Shell
+$sc = $lnk.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Server Mode.lnk'))
+$sc.TargetPath = $conhost
+$sc.Arguments = "--headless `"$ps`" -NoProfile -ExecutionPolicy Bypass -File `"$dir\Tray.ps1`""
+$sc.IconLocation = "$dir\app.ico"
+$sc.Description = 'Show the Laptop Server Mode icon next to the clock'
+$sc.Save()
 
 foreach ($n in $names) { Start-ScheduledTask -TaskName $n }
 Write-Host 'Tasks registered and started.'

@@ -226,13 +226,24 @@ namespace LSM
             hover = -1; tip.Hide(this); Invalidate();
         }
 
-        protected override void OnMouseClick(MouseEventArgs e)
+        // Fires on release over the target that was pressed, like a button:
+        // dragging off it cancels.
+        int pressed = -1;
+
+        protected override void OnMouseDown(MouseEventArgs e)
         {
-            base.OnMouseClick(e);
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left) pressed = HitAt(e.Location);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
             if (e.Button != MouseButtons.Left) return;
-            int h = HitAt(e.Location);
+            int h = HitAt(e.Location), p = pressed;
+            pressed = -1;
             keyboard = false;
-            if (h >= 0) Fire(hits[h]);
+            if (h >= 0 && h == p) Fire(hits[h]);
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys key)

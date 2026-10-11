@@ -1,5 +1,5 @@
 # Removes the tasks, turns the power override off and deletes the install
-# folder, including installed plugins. Run elevated; uninstall.sh does this for you.
+# folder, including installed plugins. uninstall.sh runs this for you.
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
 
@@ -15,6 +15,7 @@ Get-CimInstance Win32_Process | Where-Object {
     ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Remove-Item 'HKCU:\Software\Classes\AppUserModelId\LaptopServerMode' -Recurse -ErrorAction SilentlyContinue
+Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Server Mode.lnk') -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path $dir 'ServerMode.psm1') -Force
 foreach ($svc in @(Get-Services)) { try { Invoke-ServiceVerb $svc 'stop' | Out-Null } catch { } }

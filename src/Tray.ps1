@@ -4,6 +4,10 @@
 # -Preview flyout -Out <folder> saves PNGs of the flyout in both themes.
 param([string]$Preview, [string]$Out)
 Import-Module (Join-Path $PSScriptRoot 'ServerMode.psm1') -Force
+# Test seam: tests/Tray.Tests.ps1 swaps in mocks here and drives the tray at
+# the end instead of the message loop. Unset in normal use.
+$TestScript = $env:LSM_TRAY_TEST
+if ($TestScript) { . $TestScript 'setup' }
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -Path (Join-Path $PSScriptRoot 'TrayUi.cs'), (Join-Path $PSScriptRoot 'Flyout.cs') -ReferencedAssemblies System.Windows.Forms, System.Drawing
 
@@ -41,10 +45,18 @@ function Update-Theme {
     # Notification identity: shows as "Laptop Server Mode" with our tile, not "Windows PowerShell".
     $tile = Join-Path $PSScriptRoot 'app.png'
     ([LSM.Art]::Tile($t, 256)).Save($tile, [Drawing.Imaging.ImageFormat]::Png)
-    $reg = "HKCU:\Software\Classes\AppUserModelId\$AppId"
-    New-Item $reg -Force | Out-Null
-    Set-ItemProperty $reg DisplayName $AppTitle
-    Set-ItemProperty $reg IconUri $tile
+    # Same tile as an .ico (PNG inside, sharp at every size) for the Start menu shortcut.
+    $png = [IO.File]::ReadAllBytes($tile)
+    $w = New-Object IO.BinaryWriter ([IO.File]::Create((Join-Path $PSScriptRoot 'app.ico')))
+    $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]1)                  # icon file, 1 image
+    $w.Write([byte[]](0, 0, 0, 0)); $w.Write([uint16]1); $w.Write([uint16]32)       # 256x256, 32-bit
+    $w.Write([uint32]$png.Length); $w.Write([uint32]22); $w.Write($png); $w.Close()
+    if (-not $TestScript) {
+        $reg = "HKCU:\Software\Classes\AppUserModelId\$AppId"
+        New-Item $reg -Force | Out-Null
+        Set-ItemProperty $reg DisplayName $AppTitle
+        Set-ItemProperty $reg IconUri $tile
+    }
     $true
 }
 
@@ -279,6 +291,7 @@ $tray.Visible = $true
 # Windows keys the entry by executable, and this tray runs as powershell.exe.
 # Respects the user's choice afterwards.
 function Show-TrayIconOnce {
+    if ($TestScript) { return }
     $s = Get-State
     if ($s.PSObject.Properties['trayPinned'] -and $s.trayPinned) { return }
     $entry = Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue |
@@ -301,5 +314,6 @@ $timer.Start()
 Invoke-Safely { Update-Tray }
 Write-Log "Tray started (pid $PID)" 'tray'
 [LSM.Win]::Trim()
+if ($TestScript) { . $TestScript 'run'; $tray.Dispose(); return }
 [Windows.Forms.Application]::Run()
 $tray.Dispose()
