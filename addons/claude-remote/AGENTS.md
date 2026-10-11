@@ -28,6 +28,6 @@ In **__MAIN_DISTRO__**:
 
 ## Admin (from __MAIN_DISTRO__, repo ~/projects/laptop-server-mode)
 
-- Give ClaudeBox a repo: `box/add-repo.sh owner/repo [--read-only]`.
+- Give ClaudeBox a repo: `addons/claude-remote/add-repo.sh owner/repo [--read-only]`.
 - Watch it: `wsl.exe -d ClaudeBox -- tmux attach -t claude-server`.
-- Stop it: tray menu > Stop all services now, or `wsl.exe --terminate ClaudeBox`.
+- Stop it: tray flyout > Stop all services now, or `wsl.exe --terminate ClaudeBox`.

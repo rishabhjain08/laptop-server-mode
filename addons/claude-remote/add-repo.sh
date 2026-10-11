@@ -2,7 +2,7 @@
 # Gives ClaudeBox access to ONE GitHub repo with a deploy key, then clones it
 # into ~/work inside the box. The private key is created inside the box and
 # never leaves it; only the public key is registered (with your gh login).
-# Usage (from your main WSL distro):  box/add-repo.sh owner/repo [--read-only]
+# Usage (from your main WSL distro):  addons/claude-remote/add-repo.sh owner/repo [--read-only]
 # Revoke any time: GitHub > repo > Settings > Deploy keys > "ClaudeBox".
 set -euo pipefail
 REPO="${1:?usage: $0 owner/repo [--read-only]}"
@@ -40,7 +40,7 @@ fi
 
 # No branch ruleset: GitHub attributes deploy-key pushes to the repo owner,
 # so a "block main" rule can't tell ClaudeBox from you. The "never push to
-# main" rule lives in /etc/claude-code/CLAUDE.md (box/AGENTS.md) instead.
+# main" rule lives in /etc/claude-code/CLAUDE.md (addons/claude-remote/AGENTS.md) instead.
 
 echo "==> Cloning into ClaudeBox:~/work/$NAME"
 box <<BOX

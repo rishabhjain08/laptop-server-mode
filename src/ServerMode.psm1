@@ -1,4 +1,5 @@
-# Core of Laptop Server Mode: state, power override, battery rule, services.
+# Core of Laptop Server Mode: state, power override, battery rule.
+# Plugins (services and hooks) are in Plugins.ps1.
 # Windows PowerShell 5.1 compatible. Keep this file ASCII-only.
 
 Set-StrictMode -Version 2
@@ -44,7 +45,7 @@ function Write-Log {
 # ---------------------------------------------------------------- config + state
 
 function Get-Config {
-    $conf = [ordered]@{ batteryLimit = 35; pollSeconds = 15; wslDistro = ''; wslRoot = '' }
+    $conf = [ordered]@{ batteryLimit = 35; pollSeconds = 15; wslDistro = '' }
     if (Test-Path $ConfPath) {
         $json = Get-Content $ConfPath -Raw | ConvertFrom-Json
         foreach ($p in $json.PSObject.Properties) { $conf[$p.Name] = $p.Value }
@@ -57,6 +58,7 @@ function New-State {
         enabled = $false; ignoreBatteryLimit = $false; services = [pscustomobject]@{}
         active = $false; reason = 'off'; originalPlan = $null; serverPlan = $null
         battery = $null; onAC = $true; serviceStatus = [pscustomobject]@{}; heartbeat = $null
+        hookReason = $null; lastBoot = $null
     }
 }
 
@@ -239,121 +241,11 @@ function Clear-WorkingSet {
     [LSM.Native]::EmptyWorkingSet([Diagnostics.Process]::GetCurrentProcess().Handle) | Out-Null
 }
 
-# ---------------------------------------------------------------- services
+# ---------------------------------------------------------------- plugins
 
-function Get-Services {
-    $dir = Join-Path $Root 'services'
-    if (-not (Test-Path $dir)) { return }
-    foreach ($f in Get-ChildItem $dir -Recurse -Filter 'service.json') {
-        $svc = Get-Content $f.FullName -Raw | ConvertFrom-Json
-        $svc | Add-Member -Force dir $f.DirectoryName
-        $svc
-    }
-}
-
-function Test-ServiceEnabled {
-    param($Service, $State)
-    $p = $State.services.PSObject.Properties[$Service.name]
-    if ($p) { [bool]$p.Value } else { [bool]$Service.enabledByDefault }
-}
-
-function Invoke-Hidden {
-    param([string]$File, [string]$Arguments, [int]$TimeoutSec = 60, [string]$InputText)
-    $psi = New-Object Diagnostics.ProcessStartInfo $File, $Arguments
-    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
-    $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
-    $psi.RedirectStandardInput = [bool]$InputText
-    $p = [Diagnostics.Process]::Start($psi)
-    if ($InputText) { $p.StandardInput.Write($InputText); $p.StandardInput.Close() }
-    $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
-    if (-not $p.WaitForExit($TimeoutSec * 1000)) { $p.Kill(); return [pscustomobject]@{ Code = -1; Output = 'timeout' } }
-    [pscustomobject]@{ Code = $p.ExitCode; Output = (($out.Result + $err.Result) -replace "`0", '').Trim() }
-}
-
-# Runs a service's script with one verb: start | check | stop.
-function Invoke-ServiceVerb {
-    param($Service, [string]$Verb)
-    $conf = Get-Config
-    if ($Service.runsIn -eq 'wsl') {
-        # The script is piped in, so it works in distros that can't see
-        # Windows files (like ClaudeBox).
-        $distro = if ($Service.PSObject.Properties['wslDistro']) { $Service.wslDistro } else { $conf.wslDistro }
-        $user   = if ($Service.PSObject.Properties['wslUser']) { "-u $($Service.wslUser) " } else { '' }
-        $text   = [IO.File]::ReadAllText((Join-Path $Service.dir $Service.script)) -replace "`r`n", "`n"
-        $wsl    = Join-Path $env:SystemRoot 'System32\wsl.exe'
-        # wsl.exe does not strip quotes from -d; distro names never contain spaces.
-        Invoke-Hidden $wsl "-d $distro $user--cd / -- bash -s -- $Verb" -InputText $text
-    } else {
-        $script = Join-Path $Service.dir $Service.script
-        Invoke-Hidden 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$script`" $Verb"
-    }
-}
-
-# Keeps enabled services running while server mode is ON. Retries a failing
-# service with growing gaps (1, 2, 4 ... 30 min) so a broken one doesn't spin.
-function Sync-Services {
-    param($State)
-    $now = Get-Date
-    foreach ($svc in @(Get-Services)) {
-        $name   = $svc.name
-        $prev   = $State.serviceStatus.PSObject.Properties[$name]
-        $st     = if ($prev) { $prev.Value } else { [pscustomobject]@{ status = 'stopped'; failures = 0; retryAt = $null } }
-        $wanted = $State.enabled -and (Test-ServiceEnabled $svc $State)
-
-        if (-not $wanted) {
-            $stopIt = -not (Test-ServiceEnabled $svc $State) -or $svc.stopWhenServerModeOff
-            if ($stopIt -and $st.status -ne 'stopped') {
-                $r = Invoke-ServiceVerb $svc 'stop'
-                Write-Log "[$name] stopped (exit $($r.Code)) $($r.Output)"
-                $st.status = 'stopped'; $st.failures = 0; $st.retryAt = $null
-            } elseif (-not $stopIt) {
-                $st.status = if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) { 'running' } else { 'stopped' }
-            }
-        } elseif ((Invoke-ServiceVerb $svc 'check').Code -eq 0) {
-            if ($st.status -ne 'running') { Write-Log "[$name] running" }
-            $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
-        } elseif (-not $st.retryAt -or $now -ge [datetime]$st.retryAt) {
-            $r = Invoke-ServiceVerb $svc 'start'
-            if ($r.Code -eq 3) {
-                # Needs one-time setup by a person; check again in a minute, quietly.
-                if ($st.status -ne 'needs-setup') { Write-Log "[$name] needs setup: $($r.Output)" }
-                $st.status = 'needs-setup'; $st.retryAt = $now.AddMinutes(1).ToString('o')
-                $State.serviceStatus | Add-Member -Force $name $st
-                continue
-            }
-            Start-Sleep -Seconds 3
-            if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) {
-                Write-Log "[$name] started"
-                $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
-            } else {
-                $st.failures = [int]$st.failures + 1
-                $wait = [math]::Min(30, [math]::Pow(2, $st.failures - 1))
-                $st.status = 'failing'; $st.retryAt = $now.AddMinutes($wait).ToString('o')
-                Write-Log "[$name] failed to start (try $($st.failures), next in $wait min): exit $($r.Code) $($r.Output)"
-            }
-        }
-        $State.serviceStatus | Add-Member -Force $name $st
-    }
-}
-
-# Kill switch: disables every service and stops it immediately. Services in
-# their own distro (like ClaudeBox) are stopped by shutting the distro down.
-function Stop-AllServices {
-    $conf = Get-Config
-    $wsl  = Join-Path $env:SystemRoot 'System32\wsl.exe'
-    foreach ($svc in @(Get-Services)) {
-        Set-ServiceEnabled $svc.name $false
-        $own = $svc.PSObject.Properties['wslDistro'] -and $svc.wslDistro -ne $conf.wslDistro
-        if ($own) { $r = Invoke-Hidden $wsl "--terminate $($svc.wslDistro)" } else { $r = Invoke-ServiceVerb $svc 'stop' }
-        Write-Log "[$($svc.name)] emergency stop (exit $($r.Code))" 'tray'
-    }
-    Update-State {
-        param($s)
-        foreach ($p in @($s.serviceStatus.PSObject.Properties)) { $p.Value.status = 'stopped' }
-        $s
-    } | Out-Null
-}
+. (Join-Path $PSScriptRoot 'Plugins.ps1')
 
 Export-ModuleMember -Function Write-Log, Get-Config, Get-State, Update-State, Set-ServerMode,
     Set-ServiceEnabled, Get-PowerStatus, Sync-ServerMode, Set-KeepAwake, Get-Services,
-    Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet
+    Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet,
+    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb

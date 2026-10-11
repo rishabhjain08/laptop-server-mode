@@ -2,6 +2,8 @@
 #   Watchdog: at boot, before sign-in. Uses S4U ("do not store password"),
 #             so no password is saved anywhere.
 #   Tray:     at sign-in, in your desktop session.
+#   Shutdown: when Windows starts shutting down or restarting (event 1074),
+#             runs plugins' "shutdown" hooks.
 param([Parameter(Mandatory)][string]$User)
 $ErrorActionPreference = 'Stop'
 
@@ -9,6 +11,7 @@ $dir = $PSScriptRoot
 $ps  = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
 $names = 'LaptopServerMode Watchdog', 'LaptopServerMode Tray'
+$shutdownTask = 'LaptopServerMode Shutdown'
 
 foreach ($n in $names) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $n }
@@ -35,6 +38,18 @@ Register-ScheduledTask -TaskName $names[1] -Force -Settings $settings `
     -Action (New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" -NoProfile -ExecutionPolicy Bypass -File `"$dir\Tray.ps1`"") `
     -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $User) `
     -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive -RunLevel Limited) | Out-Null
+
+# Event triggers aren't exposed by New-ScheduledTaskTrigger; build one via CIM.
+$class = Get-CimClass -ClassName MSFT_TaskEventTrigger -Namespace Root/Microsoft/Windows/TaskScheduler
+$onShutdown = New-CimInstance -CimClass $class -ClientOnly
+$onShutdown.Enabled = $true
+$onShutdown.Subscription = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''User32''] and EventID=1074]]</Select></Query></QueryList>'
+Register-ScheduledTask -TaskName $shutdownTask -Force `
+    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)) `
+    -Description 'Laptop Server Mode: runs plugin shutdown hooks when Windows shuts down or restarts.' `
+    -Action (New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\Run-Hooks.ps1`" -Event shutdown") `
+    -Trigger $onShutdown `
+    -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
 
 foreach ($n in $names) { Start-ScheduledTask -TaskName $n }
 Write-Host 'Tasks registered and started.'

@@ -1,9 +1,9 @@
 # Removes the tasks, turns the power override off and deletes the install
-# folder. Run elevated; uninstall.sh does this for you.
+# folder, including installed plugins. Run elevated; uninstall.sh does this for you.
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
 
-foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray') {
+foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode Shutdown') {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $n
         Unregister-ScheduledTask -TaskName $n -Confirm:$false
@@ -17,6 +17,7 @@ Get-CimInstance Win32_Process | Where-Object {
 Remove-Item 'HKCU:\Software\Classes\AppUserModelId\LaptopServerMode' -Recurse -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path $dir 'ServerMode.psm1') -Force
+foreach ($svc in @(Get-Services)) { try { Invoke-ServiceVerb $svc 'stop' | Out-Null } catch { } }
 Update-State { param($s) $s.enabled = $false; Disable-PowerOverride $s; $s } | Out-Null
 Remove-Module ServerMode
 

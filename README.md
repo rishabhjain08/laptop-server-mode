@@ -1,12 +1,12 @@
 # Laptop Server Mode
 
-A tray toggle for Windows laptops that keeps the laptop working as a server (lid closed, unplugged, across restarts), without editing your own power settings.
+A tray toggle for Windows laptops that keeps the laptop working as a server (lid closed, unplugged, across restarts) without editing your own power settings. Plugins let it keep your own programs running and run scripts when things happen.
 
 - **One click** in the taskbar tray switches server mode on or off.
 - **ON:** lid close and idle sleep are ignored. The screen still turns off.
 - **OFF:** your normal power plan and settings apply, unchanged.
-- **Restarts:** server mode and its services come back after a reboot, before anyone signs in.
-- **Services:** small plug-ins started and kept alive while server mode is on. The first one runs [Claude Code](https://claude.com/claude-code) with Remote Control inside an isolated WSL distro.
+- **Restarts:** server mode and your plugins come back after a reboot, before anyone signs in.
+- **Plugins:** keep a command running (a bot, a file server, an agent), or run a script on boot, shutdown, or when server mode changes. Write them in bash (any WSL distro) or PowerShell.
 
 ## How it works
 
@@ -14,17 +14,17 @@ A tray toggle for Windows laptops that keeps the laptop working as a server (lid
 | --- | --- |
 | Power override | Turning ON copies your *current* power plan into a temporary plan that changes only lid close (do nothing), sleep, hibernate and unattended sleep (never). Turning OFF switches back to your plan and deletes the copy. Your own plans are never edited. |
 | Battery rule | On battery, server mode pauses at 35% (configurable) and your normal settings take over. It resumes when you plug in. If the battery is already below the limit when you turn it on, you're asked to plug in first, with an option to continue anyway. |
-| Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, keeps WSL running and restarts services that stop. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
-| Tray | Starts when you sign in. A laptop icon styled like the built-in tray icons, with a green badge when ON, an amber badge when paused by battery, and no badge when OFF. Left-click to toggle; right-click for the menu. |
+| Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, keeps WSL running, restarts plugin services that stop and runs hooks. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
+| Tray | Starts when you sign in. A laptop icon with a green badge when ON, amber when paused by battery, and none when OFF. Left-click toggles; right-click opens a flyout with each service's status and switch. |
 
-The tray follows Windows 11's look: light and dark themes, your accent color, high-DPI, rounded menu with a toggle switch, and notifications that show as "Laptop Server Mode". On first run it pins its icon next to the clock (unpin it any time in Taskbar settings).
+The tray follows Windows 11's look: light and dark themes, your accent color, high DPI and keyboard navigation. Notifications show as "Laptop Server Mode".
 
 Note: any power-setting change you make while server mode is ON goes to the temporary plan and is discarded when you turn it OFF.
 
 ## Requirements
 
 - Windows 10/11 laptop (tested on Windows 11 Home with Modern Standby)
-- WSL 2 with `tmux` (for the Claude service)
+- WSL 2 (for the installer and WSL plugins)
 - Admin rights once, to register the startup tasks
 
 ## Install
@@ -32,12 +32,12 @@ Note: any power-setting change you make while server mode is ON goes to the temp
 From WSL:
 
 ```bash
-git clone git@github.com:rishabhjain08/laptop-server-mode.git ~/projects/laptop-server-mode
-cd ~/projects/laptop-server-mode
+git clone https://github.com/rishabhjain08/laptop-server-mode.git
+cd laptop-server-mode
 ./install.sh        # approve the Windows admin prompt
 ```
 
-Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run `./install.sh` to update; your config and state are kept. To remove everything, run `./uninstall.sh`.
+Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run `./install.sh` to update; your config, state and plugins are kept. To remove everything, run `./uninstall.sh`.
 
 ### Config
 
@@ -47,108 +47,93 @@ Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run `./install.sh` 
 | --- | --- | --- |
 | `batteryLimit` | `35` | On battery, pause server mode at or below this % |
 | `pollSeconds` | `15` | How often the watchdog checks |
-| `wslDistro` | the distro you installed from | WSL distro that runs WSL services |
-| `wslRoot` | install folder as a WSL path | Used to find service scripts from WSL |
+| `wslDistro` | the distro you installed from | Default WSL distro for plugins |
 
-## Services
+## Plugins
 
-Each service is a folder in `services/` with a `service.json` and a script that accepts `start`, `check` or `stop` (`check` exits 0 when the service is healthy):
+A plugin is a folder with a `plugin.json`. It can provide a **service** (something kept running), **hooks** (commands run on events), or both.
+
+```bash
+./plugin.sh add examples/file-share     # install (or update) a plugin
+./plugin.sh list
+./plugin.sh remove file-share           # stops its service, then deletes it
+```
+
+Installed plugins live in `%LOCALAPPDATA%\LaptopServerMode\plugins`. The watchdog picks up changes on its next check; nothing needs restarting.
+
+### A service in one line
 
 ```json
 {
-  "name": "claude",
-  "title": "Claude Code (Remote Control)",
-  "runsIn": "wsl",
-  "script": "claude.sh",
-  "enabledByDefault": true,
-  "stopWhenServerModeOff": false
+  "name": "file-share",
+  "title": "File share on port 8080",
+  "run": "python3 -m http.server 8080 --directory ~/share"
 }
 ```
 
-- `runsIn`: `wsl` (a bash script, piped into the distro) or `windows` (a PowerShell script).
-- `wslDistro` / `wslUser` (optional): run in a specific distro as a specific user.
-- `start` may exit `3` to mean "needs one-time setup by a person"; the tray shows that instead of retrying.
-- Services start when server mode turns on and are restarted if `check` fails. Failing starts are retried with growing gaps of up to 30 minutes.
-- `stopWhenServerModeOff: false` leaves the service running when server mode is turned off.
-- Turn each service on or off from the tray's **Services** menu.
+`run` is started in a login shell in your WSL distro and restarted if it exits. Its output goes to `~/.local/state/laptop-server-mode/<name>.log` (Windows: `logs\<name>.log`). Services start when server mode turns on and are retried with growing gaps (up to 30 minutes) if they keep failing. Each service gets a switch in the tray flyout.
 
-Never put secrets in a service. Let the tool use its own login (for example `claude` uses its own sign-in).
+### Hooks
 
-### Claude service (runs in ClaudeBox)
+```json
+{
+  "name": "backup",
+  "on": {
+    "boot":     "./sync.sh",
+    "shutdown": "rclone sync ~/notes remote:notes"
+  }
+}
+```
 
-Claude Code runs unattended with Remote Control and **permission prompts
-skipped** (`--dangerously-skip-permissions`), inside a separate, locked-down
-WSL distro called **ClaudeBox**, which acts as the sandbox. `install.sh` creates it.
-After a restart it resumes the last conversation (`--continue`), or starts a
-fresh one if there is none.
-
-Why a separate distro: an unattended agent reads web pages and packages nobody
-is watching, and a prompt injection could make it misbehave. ClaudeBox makes
-the worst case "one revocable deploy key", not "your whole machine".
-
-| Inside ClaudeBox, Claude can't... | How |
+| Event | When |
 | --- | --- |
-| Run Windows programs or read Windows files | No drive mounts, no Windows PATH, WSL interop sockets root-only (`/run/WSL` 0700) |
-| Read your main distro, SSH keys or `gh` login | Separate distro filesystem; runs as unprivileged `claude` (UID 2501), no sudo, root locked |
-| Use the mic, speakers or screen | WSLg bridge unmounted at boot |
-| Reach your home network, VPN peers or laptop services | nftables rules for UID 2501: private/LAN/CGNAT ranges and sensitive local ports rejected; internet allowed |
-| Hog the laptop | cgroup caps: 6 GB RAM (5 GB soft), 4 CPU cores, 2000 processes |
+| `boot` | Once after Windows starts, before anyone signs in |
+| `server-on` | Server mode turned on, or resumed after a battery pause |
+| `server-off` | Server mode turned off |
+| `server-paused` | Paused by the battery rule |
+| `service-failed` | A service failed to start (first failure only, until it recovers) |
+| `shutdown` | Windows is shutting down or restarting. Best effort: Windows doesn't wait, so keep it to a few seconds. |
 
-`box/harden.sh` runs at every box boot **and** before every Claude start; the
-service refuses to start if any check fails. Verify any time:
+Hooks run one at a time with a 60-second limit, in the plugin's folder, and log to `logs\hooks.log`. They get these environment variables:
 
-```bash
-wsl.exe -d ClaudeBox -u root -- bash -s < box/selftest.sh
-```
+| Variable | Value |
+| --- | --- |
+| `LSM_EVENT` | The event name |
+| `LSM_STATE` | `on`, `paused` or `off` |
+| `LSM_PREVIOUS` | Previous state (state-change events) |
+| `LSM_SERVICE` | The failed service (`service-failed`) |
+| `LSM_BATTERY`, `LSM_ON_AC` | Battery percent, and `1` when plugged in |
+| `LSM_PLUGIN`, `LSM_PLUGIN_DIR` | This plugin's name and folder |
 
-Note: WSL distros share one kernel, so don't set `[interop] enabled=false` in
-ClaudeBox; it would turn interop off for **every** distro. The permission
-approach above blocks only the box user.
+`examples/event-log` logs every event to `~/server-mode-events.log`; it's a quick way to watch them.
 
-**First-time setup:** `wsl -d ClaudeBox`, then `cd ~/work && claude` to sign in
-and trust the folder. Until then the tray shows the service as *needs sign-in*.
+### plugin.json reference
 
-**GitHub access, one repo at a time:**
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `name` | (required) | Unique id |
+| `title` | `name` | Shown in the tray |
+| `runsIn` | `wsl` | `wsl` (bash) or `windows` (PowerShell for hooks, a command line for `run`) |
+| `wslDistro`, `wslUser` | `config.json`'s distro, its default user | Where WSL plugins run |
+| `run` | | A command to keep running |
+| `script` | | Instead of `run`: a script called with `start`, `check` (exit 0 when healthy) or `stop`. `start` may exit `3` for "needs one-time setup by a person"; the tray shows *needs sign-in* instead of retrying. |
+| `on` | | Hooks: `{ "<event>": "<command>" }` |
+| `enabledByDefault` | `true` | `false` keeps a service off until you turn it on in the tray. A plugin's hooks run only while it is on. |
+| `stopWhenServerModeOff` | `false` | `false` leaves the service running when server mode is turned off |
 
-```bash
-box/add-repo.sh owner/repo              # read-write deploy key, cloned to ~/work/repo
-box/add-repo.sh owner/repo --read-only
-```
+A few notes:
 
-The private key is generated inside ClaudeBox and never leaves it. Revoke in
-GitHub > repo > Settings > Deploy keys > "ClaudeBox".
+- WSL scripts are piped into the distro, so they also work in distros that can't see Windows files.
+- Windows `run` services run hidden in the background (session 0), so they can't show windows.
+- Don't put secrets in `plugin.json`. Let the tool use its own login.
 
-**Working on the same repo from both distros:** each has its own clone and they
-sync only through GitHub. `install.sh` puts shared rules (`box/AGENTS.md`) at
-`/etc/claude-code/CLAUDE.md` in both distros, so each Claude knows about the
-other: ClaudeBox branches from fresh `main`, works on `claude/<task>` and never
-pushes `main`; you review and merge. Don't mount one distro's files in the other:
-git hooks and configs planted by the box would then run as you.
+### Kill switch
 
-**Kill switch:** tray menu > **Stop all services now** disables every service
-and shuts ClaudeBox down instantly. From SSH: `wsl.exe --terminate ClaudeBox`.
-Rebuild from scratch: `./uninstall.sh --remove-box && ./install.sh`.
+**Stop all services** in the tray flyout turns every service off and stops it at once. Services in their own WSL distro are stopped by shutting that distro down.
 
-Watch it work: `wsl -d ClaudeBox -- tmux attach -t claude-server` (detach with Ctrl-b d).
+## Add-ons
 
-### Claude in your main distro (optional, off by default)
-
-`services/claude-main` keeps one named Claude conversation running in your
-**main** distro, in tmux, with Remote Control. After a restart it resumes the
-same conversation (`--resume` with a saved session ID) and the same Remote
-Control link. It runs as you with full access (keys, `gh`, Windows), so it is
-**off by default**: enable it in the tray's **Services** menu.
-
-Settings in `~/.config/laptop-server-mode/claude-main.env`:
-
-```bash
-NAME=my-laptop                            # tmux session, Remote Control and /resume name
-DIR=$HOME/projects                        # must be a trusted folder (Claude never saves trust for $HOME)
-FLAGS="--dangerously-skip-permissions"    # optional
-```
-
-Open it with `tmux attach -t my-laptop` (or `Ctrl-b s` inside tmux). Stopping it
-kills only that tmux session, never your other ones.
+- **[Claude Remote](addons/claude-remote/)**: runs Claude Code with Remote Control unattended inside an isolated, locked-down WSL distro (ClaudeBox), so you can drive it from your phone. It's a pair of plugins plus a setup script, and a good example of a larger plugin.
 
 ## Remote access (optional)
 
@@ -163,19 +148,21 @@ kills only that tmux session, never your other ones.
 
 - Don't run it with the lid closed inside a bag; leave room for airflow.
 - If the laptop stays plugged in, set a battery charge limit (e.g. 80%) in your vendor's tool (Lenovo Vantage, Dell Power Manager, etc.).
-- Windows Update can still restart the laptop; server mode and services come back on their own afterwards.
+- Windows Update can still restart the laptop; server mode and plugins come back on their own afterwards.
 
 ## Troubleshooting
 
-- Logs: tray menu > **Open logs**, or `%LOCALAPPDATA%\LaptopServerMode\logs`.
-- If the tray shows "watchdog down", use tray menu > **Start watchdog** or re-run `./install.sh`.
+- Logs: the folder button in the tray flyout, or `%LOCALAPPDATA%\LaptopServerMode\logs` (`watchdog.log`, `hooks.log`, `tray.log`).
+- If the flyout says background checks stopped, click the banner or re-run `./install.sh`.
 - To return to normal power immediately, turn server mode OFF, or run `./uninstall.sh`.
 
 ## Development
 
-- Edit files in `src/` and `services/`, then re-run `./install.sh` to deploy.
-- Preview the low-battery dialog without unplugging: run `Tray.ps1 -Preview battery` from the install folder.
-- UI code (theme, icons, menu renderer) is in `src/TrayUi.cs` and is compiled when the tray starts, so the repo contains no binaries.
+- Edit files in `src/`, then re-run `./install.sh` to deploy.
+- `src/Plugins.ps1` runs plugins; `src/ServerMode.psm1` handles power and state; `src/Flyout.cs` and `src/TrayUi.cs` draw the tray UI and are compiled when the tray starts, so the repo contains no binaries.
+- Preview the UI without clicking around (from the install folder):
+  - `Tray.ps1 -Preview flyout -Out <folder>` saves PNGs of every flyout state in both themes.
+  - `Tray.ps1 -Preview battery` shows the low-battery dialog.
 
 ## License
 

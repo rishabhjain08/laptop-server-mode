@@ -1,0 +1,7 @@
+{
+  "name": "file-share",
+  "title": "File share on port 8080",
+  "runsIn": "wsl",
+  "run": "mkdir -p ~/share && python3 -m http.server 8080 --directory ~/share",
+  "enabledByDefault": true
+}

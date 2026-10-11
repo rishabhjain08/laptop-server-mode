@@ -1,11 +1,15 @@
 # Runs at boot (before anyone signs in) and loops forever:
-# re-applies server mode, applies the battery rule, keeps WSL and services up.
+# re-applies server mode, applies the battery rule, keeps WSL and services up,
+# and runs plugin hooks (boot, server-on, server-off, server-paused).
 Import-Module (Join-Path $PSScriptRoot 'ServerMode.psm1') -Force
 
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $keepAlive = @{}
 $round = 0
 $conf = Get-Config
+$boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')
+$hookNames  = @{ on = 'server-on'; battery = 'server-paused'; off = 'server-off' }
+$stateNames = @{ on = 'on'; battery = 'paused'; off = 'off' }
 
 Write-Log "Watchdog started (pid $PID, user $env:USERNAME)"
 while ($true) {
@@ -14,14 +18,27 @@ while ($true) {
         $state = Sync-ServerMode -Source watchdog
         Set-KeepAwake $state.active
 
+        # Hooks: once per Windows boot, and when server mode changes state
+        # (whoever changed it: the tray, the battery rule, or a restart).
+        $fire = @()
+        if ($state.lastBoot -ne $boot) { $fire += ,@('boot', @{}) }
+        if ($state.hookReason -and $state.hookReason -ne $state.reason) {
+            $fire += ,@($hookNames[$state.reason], @{ LSM_PREVIOUS = $stateNames[$state.hookReason] })
+        }
+        if ($state.lastBoot -ne $boot -or $state.hookReason -ne $state.reason) {
+            $reason = $state.reason
+            Update-State { param($s) $s.lastBoot = $boot; $s.hookReason = $reason; $s } | Out-Null
+        }
+        foreach ($f in $fire) { Invoke-Hooks $f[0] $f[1] }
+
         # WSL stops a distro when no Windows process holds it open. Keep the
-        # main distro up while server mode is ON, and each service's own
+        # main distro up while server mode is ON, and each WSL service's
         # distro up while that service is enabled (services keep running
         # when server mode is OFF).
         $want = @{}
         if ($state.enabled -and $conf.wslDistro) { $want[$conf.wslDistro] = $true }
         foreach ($svc in @(Get-Services)) {
-            if ($svc.PSObject.Properties['wslDistro'] -and (Test-ServiceEnabled $svc $state)) { $want[$svc.wslDistro] = $true }
+            if ($svc.runsIn -eq 'wsl' -and (Test-ServiceEnabled $svc $state)) { $want[(Get-PluginDistro $svc)] = $true }
         }
         foreach ($d in @($want.Keys)) {
             $k = $keepAlive[$d]

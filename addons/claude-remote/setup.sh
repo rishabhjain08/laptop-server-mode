@@ -1,5 +1,5 @@
 #!/bin/bash
-# Provisions ClaudeBox. Run as root inside the distro (install.sh pipes it in).
+# Provisions ClaudeBox. Run as root inside the distro (install.sh in this folder pipes it in).
 # Expects /tmp/lsm/{wsl.conf,harden.sh,managed-settings.json} to exist.
 set -euo pipefail
 BOX_UID=2501

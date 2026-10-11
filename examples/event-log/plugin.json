@@ -1,0 +1,13 @@
+{
+  "name": "event-log",
+  "title": "Event log",
+  "runsIn": "wsl",
+  "on": {
+    "boot":           "./log.sh",
+    "server-on":      "./log.sh",
+    "server-off":     "./log.sh",
+    "server-paused":  "./log.sh",
+    "service-failed": "./log.sh",
+    "shutdown":       "./log.sh"
+  }
+}

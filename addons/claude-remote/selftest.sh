@@ -1,6 +1,6 @@
 #!/bin/bash
 # ClaudeBox isolation self-test. Run as root inside the box:
-#   wsl.exe -d ClaudeBox -u root -- bash -s < box/selftest.sh
+#   wsl.exe -d ClaudeBox -u root -- bash -s < addons/claude-remote/selftest.sh
 # Every line should end in BLOCKED/none, except internet and DNS.
 t() { printf '%-30s' "$1"; out=$(runuser -l claude -c "$2" </dev/null 2>&1 | tail -1); echo "${out:-<none>}"; }
 port() { echo "timeout 4 bash -c '</dev/tcp/$1/$2' 2>/dev/null && echo OPEN || echo BLOCKED"; }

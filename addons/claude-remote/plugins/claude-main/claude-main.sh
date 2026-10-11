@@ -2,7 +2,7 @@
 # Claude Code with Remote Control in your MAIN distro, as you, in tmux.
 # Resumes the same named conversation after every restart.
 # Unlike ClaudeBox it has your full access (keys, gh login, Windows), so it
-# is off by default; enable it from the tray's Services menu.
+# is off by default; turn it on in the tray flyout.
 #
 # Optional settings in ~/.config/laptop-server-mode/claude-main.env:
 #   NAME=my-laptop                 session name (tmux, Remote Control, /resume)
