@@ -44,6 +44,7 @@ function Update-Theme {
         moon    = & $glyph 0xE708 $t.Fg
         folder  = & $glyph 0xE838 $t.Fg
         warn    = & $glyph 0xE7BA $t.Warn
+        stop    = & $glyph 0xE71A $t.Bad
         close   = & $glyph 0xE711 $t.Fg
         check   = & $glyph 0xE73E $t.Accent
         blank   = New-Object Drawing.Bitmap $t.Px(16), $t.Px(16)
@@ -270,6 +271,12 @@ function Build-Menu {
         $miToggle, $miStatus,
         (New-Object Windows.Forms.ToolStripSeparator),
         $miServices,
+        (New-Item2 'Stop all services now' $img.stop {
+            Invoke-Safely {
+                Stop-AllServices
+                Show-Note 'All services stopped' 'Claude and other services are off. Turn them back on from Services.'
+            }
+        }),
         (New-Item2 'Turn screen off now' $img.moon { [LSM.Win]::ScreenOff() }),
         (New-Item2 'Open logs' $img.folder { Start-Process explorer.exe (Join-Path $PSScriptRoot 'logs') }),
         $miWatchdog,
@@ -289,7 +296,8 @@ $menu.add_Opening({
             $on = Test-ServiceEnabled $svc $s
             $st = $s.serviceStatus.PSObject.Properties[$svc.name]
             $status = if ($st) { $st.Value.status } else { 'stopped' }
-            $role = switch ($status) { 'running' { 'status-good' } 'failing' { 'status-bad' } default { 'status-none' } }
+            $role = switch ($status) { 'running' { 'status-good' } 'failing' { 'status-bad' } 'needs-setup' { 'status-warn' } default { 'status-none' } }
+            if ($status -eq 'needs-setup') { $status = 'needs sign-in' }
             $item = New-Item2 $svc.title $(if ($on) { $img.check } else { $img.blank }) $null $role
             $item.ShortcutKeyDisplayString = (Get-Culture).TextInfo.ToTitleCase($status)
             $item.Tag = @{ name = $svc.name; on = $on }
@@ -337,5 +345,7 @@ $timer.Start()
 
 Invoke-Safely { Update-Tray }
 Write-Log "Tray started (pid $PID)" 'tray'
+[LSM.Win]::Trim()
+$menu.add_Closed({ [LSM.Win]::Trim() })
 [Windows.Forms.Application]::Run()
 $tray.Dispose()

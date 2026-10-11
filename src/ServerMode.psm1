@@ -25,6 +25,7 @@ $script:Overrides = @(
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Namespace LSM -Name Native -MemberDefinition @'
 [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);
+[DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr hProcess);
 '@
 
 # ---------------------------------------------------------------- logging
@@ -221,6 +222,12 @@ function Set-KeepAwake {
     else     { [LSM.Native]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null }
 }
 
+# Gives back memory that was only needed briefly (module load, JSON parsing).
+function Clear-WorkingSet {
+    [GC]::Collect()
+    [LSM.Native]::EmptyWorkingSet([Diagnostics.Process]::GetCurrentProcess().Handle) | Out-Null
+}
+
 # ---------------------------------------------------------------- services
 
 function Get-Services {
@@ -240,11 +247,13 @@ function Test-ServiceEnabled {
 }
 
 function Invoke-Hidden {
-    param([string]$File, [string]$Arguments, [int]$TimeoutSec = 60)
+    param([string]$File, [string]$Arguments, [int]$TimeoutSec = 60, [string]$InputText)
     $psi = New-Object Diagnostics.ProcessStartInfo $File, $Arguments
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $psi.RedirectStandardInput = [bool]$InputText
     $p = [Diagnostics.Process]::Start($psi)
+    if ($InputText) { $p.StandardInput.Write($InputText); $p.StandardInput.Close() }
     $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($TimeoutSec * 1000)) { $p.Kill(); return [pscustomobject]@{ Code = -1; Output = 'timeout' } }
     [pscustomobject]@{ Code = $p.ExitCode; Output = (($out.Result + $err.Result) -replace "`0", '').Trim() }
@@ -255,11 +264,14 @@ function Invoke-ServiceVerb {
     param($Service, [string]$Verb)
     $conf = Get-Config
     if ($Service.runsIn -eq 'wsl') {
-        $rel    = $Service.dir.Substring($Root.Length).TrimStart('\') -replace '\\', '/'
-        $script = "$($conf.wslRoot)/$rel/$($Service.script)"
+        # The script is piped in, so it works in distros that can't see
+        # Windows files (like ClaudeBox).
+        $distro = if ($Service.PSObject.Properties['wslDistro']) { $Service.wslDistro } else { $conf.wslDistro }
+        $user   = if ($Service.PSObject.Properties['wslUser']) { "-u $($Service.wslUser) " } else { '' }
+        $text   = [IO.File]::ReadAllText((Join-Path $Service.dir $Service.script)) -replace "`r`n", "`n"
         $wsl    = Join-Path $env:SystemRoot 'System32\wsl.exe'
         # wsl.exe does not strip quotes from -d; distro names never contain spaces.
-        Invoke-Hidden $wsl "-d $($conf.wslDistro) -- bash -l `"$script`" $Verb"
+        Invoke-Hidden $wsl "-d $distro $user--cd / -- bash -s -- $Verb" -InputText $text
     } else {
         $script = Join-Path $Service.dir $Service.script
         Invoke-Hidden 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$script`" $Verb"
@@ -291,6 +303,13 @@ function Sync-Services {
             $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
         } elseif (-not $st.retryAt -or $now -ge [datetime]$st.retryAt) {
             $r = Invoke-ServiceVerb $svc 'start'
+            if ($r.Code -eq 3) {
+                # Needs one-time setup by a person; check again in a minute, quietly.
+                if ($st.status -ne 'needs-setup') { Write-Log "[$name] needs setup: $($r.Output)" }
+                $st.status = 'needs-setup'; $st.retryAt = $now.AddMinutes(1).ToString('o')
+                $State.serviceStatus | Add-Member -Force $name $st
+                continue
+            }
             Start-Sleep -Seconds 3
             if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) {
                 Write-Log "[$name] started"
@@ -306,6 +325,24 @@ function Sync-Services {
     }
 }
 
+# Kill switch: disables every service and stops it immediately. Services in
+# their own distro (like ClaudeBox) are stopped by shutting the distro down.
+function Stop-AllServices {
+    $conf = Get-Config
+    $wsl  = Join-Path $env:SystemRoot 'System32\wsl.exe'
+    foreach ($svc in @(Get-Services)) {
+        Set-ServiceEnabled $svc.name $false
+        $own = $svc.PSObject.Properties['wslDistro'] -and $svc.wslDistro -ne $conf.wslDistro
+        if ($own) { $r = Invoke-Hidden $wsl "--terminate $($svc.wslDistro)" } else { $r = Invoke-ServiceVerb $svc 'stop' }
+        Write-Log "[$($svc.name)] emergency stop (exit $($r.Code))" 'tray'
+    }
+    Update-State {
+        param($s)
+        foreach ($p in @($s.serviceStatus.PSObject.Properties)) { $p.Value.status = 'stopped' }
+        $s
+    } | Out-Null
+}
+
 Export-ModuleMember -Function Write-Log, Get-Config, Get-State, Update-State, Set-ServerMode,
     Set-ServiceEnabled, Get-PowerStatus, Sync-ServerMode, Set-KeepAwake, Get-Services,
-    Test-ServiceEnabled, Sync-Services, Disable-PowerOverride
+    Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet

@@ -2,6 +2,8 @@
   "name": "claude",
   "title": "Claude Code (Remote Control)",
   "runsIn": "wsl",
+  "wslDistro": "ClaudeBox",
+  "wslUser": "root",
   "script": "claude.sh",
   "enabledByDefault": true,
   "stopWhenServerModeOff": false

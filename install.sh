@@ -32,7 +32,23 @@ JSON
   echo "==> Created config.json (battery limit 35%, distro $DISTRO)"
 fi
 
+# ---- ClaudeBox: isolated distro for the Claude service --------------------
+WSL="$SYS32/wsl.exe"
+BOX=ClaudeBox
+if ! "$WSL" -l -q 2>/dev/null | tr -d '\0\r' | grep -qx "$BOX"; then
+  echo "==> Creating $BOX (Ubuntu 24.04, isolated; takes a few minutes)"
+  (cd /mnt/c && "$WSL" --install Ubuntu-24.04 --name "$BOX" --location "$(win_env LOCALAPPDATA)\\$BOX" --no-launch --web-download)
+fi
+echo "==> Provisioning $BOX"
+tar -C "$REPO/box" -cf - wsl.conf harden.sh managed-settings.json |
+  (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -c 'mkdir -p /tmp/lsm && tar -C /tmp/lsm -xf -')
+(cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -s) < "$REPO/box/setup.sh"
+(cd /mnt/c && "$WSL" --terminate "$BOX" >/dev/null)   # restart so wsl.conf applies
+echo "==> $BOX self-test"
+(cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- bash -s) < "$REPO/box/selftest.sh" | tr -d '\r'
+
 echo "==> Registering startup tasks for $WIN_USER (approve the Windows admin prompt)"
 "$PS" -NoProfile -Command "\$p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"$DEST_WIN\\Install-Tasks.ps1\" -User \"$WIN_USER\"'; exit \$p.ExitCode"
 
-echo "==> Done. Look for the dot in the taskbar tray (click ^ if hidden)."
+echo "==> Done. Look for the laptop icon next to the clock."
+echo "    First time only: run 'wsl -d $BOX', then 'cd ~/work && claude' to sign in and trust the folder."

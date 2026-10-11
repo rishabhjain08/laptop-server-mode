@@ -6,7 +6,7 @@ A tray toggle for Windows laptops that keeps the laptop working as a server (lid
 - **ON:** lid close and idle sleep are ignored. The screen still turns off.
 - **OFF:** your normal power plan and settings apply, unchanged.
 - **Restarts:** server mode and its services come back after a reboot, before anyone signs in.
-- **Services:** small plug-ins started and kept alive while server mode is on. The first one runs [Claude Code](https://claude.com/claude-code) with Remote Control inside WSL.
+- **Services:** small plug-ins started and kept alive while server mode is on. The first one runs [Claude Code](https://claude.com/claude-code) with Remote Control inside an isolated WSL distro.
 
 ## How it works
 
@@ -65,20 +65,63 @@ Each service is a folder in `services/` with a `service.json` and a script that 
 }
 ```
 
-- `runsIn`: `wsl` (a bash script) or `windows` (a PowerShell script).
+- `runsIn`: `wsl` (a bash script, piped into the distro) or `windows` (a PowerShell script).
+- `wslDistro` / `wslUser` (optional): run in a specific distro as a specific user.
+- `start` may exit `3` to mean "needs one-time setup by a person"; the tray shows that instead of retrying.
 - Services start when server mode turns on and are restarted if `check` fails. Failing starts are retried with growing gaps of up to 30 minutes.
 - `stopWhenServerModeOff: false` leaves the service running when server mode is turned off.
 - Turn each service on or off from the tray's **Services** menu.
 
 Never put secrets in a service. Let the tool use its own login (for example `claude` uses its own sign-in).
 
-### Claude service
+### Claude service (runs in ClaudeBox)
 
-Runs `claude --remote-control` in a detached tmux session named `claude-server`, in `~/projects`. Override these with `LSM_CLAUDE_SESSION` or `LSM_CLAUDE_DIR` in `~/.profile`.
+Claude Code runs unattended with Remote Control, in **auto** permission mode
+(routine actions approved automatically, risky ones blocked), inside a
+separate, locked-down WSL distro called **ClaudeBox**. `install.sh` creates it.
 
-First-time setup: sign in to Claude Code, then run `claude` once in `~/projects` and accept the folder trust prompt (or `tmux attach -t claude-server` and accept it there).
+Why a separate distro: an unattended agent reads web pages and packages nobody
+is watching, and a prompt injection could make it misbehave. ClaudeBox makes
+the worst case "one revocable deploy key", not "your whole machine".
 
-Connect from the Claude app or claude.ai, or over SSH: `tmux attach -t claude-server`.
+| Inside ClaudeBox, Claude can't... | How |
+| --- | --- |
+| Run Windows programs or read Windows files | No drive mounts, no Windows PATH, WSL interop sockets root-only (`/run/WSL` 0700) |
+| Read your main distro, SSH keys or `gh` login | Separate distro filesystem; runs as unprivileged `claude` (UID 2501), no sudo, root locked |
+| Use the mic, speakers or screen | WSLg bridge unmounted at boot |
+| Reach your home network, VPN peers or laptop services | nftables rules for UID 2501: private/LAN/CGNAT ranges and sensitive local ports rejected; internet allowed |
+| Switch itself to "bypass permissions" | Managed policy `/etc/claude-code/managed-settings.json` (root-owned) |
+| Hog the laptop | cgroup caps: 6 GB RAM (5 GB soft), 4 CPU cores, 2000 processes |
+
+`box/harden.sh` runs at every box boot **and** before every Claude start; the
+service refuses to start if any check fails. Verify any time:
+
+```bash
+wsl.exe -d ClaudeBox -u root -- bash -s < box/selftest.sh
+```
+
+Note: WSL distros share one kernel, so don't set `[interop] enabled=false` in
+ClaudeBox; it would turn interop off for **every** distro. The permission
+approach above blocks only the box user.
+
+**First-time setup:** `wsl -d ClaudeBox`, then `cd ~/work && claude` to sign in
+and trust the folder. Until then the tray shows the service as *needs sign-in*.
+
+**GitHub access, one repo at a time:**
+
+```bash
+box/add-repo.sh owner/repo              # read-write deploy key, cloned to ~/work/repo
+box/add-repo.sh owner/repo --read-only
+```
+
+The private key is generated inside ClaudeBox and never leaves it. Revoke in
+GitHub > repo > Settings > Deploy keys > "ClaudeBox".
+
+**Kill switch:** tray menu > **Stop all services now** disables every service
+and shuts ClaudeBox down instantly. From SSH: `wsl.exe --terminate ClaudeBox`.
+Rebuild from scratch: `./uninstall.sh --remove-box && ./install.sh`.
+
+Watch it work: `wsl -d ClaudeBox -- tmux attach -t claude-server` (detach with Ctrl-b d).
 
 ## Remote access (optional)
 

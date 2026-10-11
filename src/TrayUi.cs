@@ -15,6 +15,15 @@ namespace LSM
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        [DllImport("psapi.dll")] static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+        // Gives back memory used only during startup (compiling, loading).
+        public static void Trim()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            EmptyWorkingSet(System.Diagnostics.Process.GetCurrentProcess().Handle);
+        }
 
         // Rounded corners, border color and dark title bar on Windows 11 (ignored on 10).
         public static void Style(IntPtr hwnd, Theme t)
