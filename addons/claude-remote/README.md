@@ -83,7 +83,7 @@ Watch it work: `wsl -d ClaudeBox -- tmux attach -t claude-server` (detach with C
 
 The `claude-main` plugin keeps one named Claude conversation running in your
 **main** distro, in tmux, with Remote Control. After a restart it resumes the
-same conversation (`--resume` with a saved session ID) and the same Remote
+most recent conversation in that folder (`--continue`) and the same Remote
 Control link. It runs as you with full access (keys, `gh`, Windows), so it is
 **off by default**: turn it on in the tray flyout.
 
