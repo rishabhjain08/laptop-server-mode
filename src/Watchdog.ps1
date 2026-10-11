@@ -8,8 +8,6 @@ $keepAlive = @{}
 $round = 0
 $conf = Get-Config
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')
-$hookNames  = @{ on = 'server-on'; battery = 'server-paused'; off = 'server-off' }
-$stateNames = @{ on = 'on'; battery = 'paused'; off = 'off' }
 
 Write-Log "Watchdog started (pid $PID, user $env:USERNAME)"
 
@@ -33,11 +31,7 @@ while ($true) {
 
         # Hooks: once per Windows boot, and when server mode changes state
         # (whoever changed it: the tray, the battery rule, or a restart).
-        $fire = @()
-        if ($state.lastBoot -ne $boot) { $fire += ,@('boot', @{}) }
-        if ($state.hookReason -and $state.hookReason -ne $state.reason) {
-            $fire += ,@($hookNames[$state.reason], @{ LSM_PREVIOUS = $stateNames[$state.hookReason] })
-        }
+        $fire = Get-HookEvents $state $boot
         if ($state.lastBoot -ne $boot -or $state.hookReason -ne $state.reason) {
             $reason = $state.reason
             Update-State { param($s) $s.lastBoot = $boot; $s.hookReason = $reason; $s } | Out-Null

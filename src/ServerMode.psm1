@@ -201,6 +201,20 @@ function Disable-PowerOverride {
     $State.serverPlan = $null
 }
 
+# The rule as a pure function (tests cover every combination). On battery at
+# or below the limit, server mode pauses unless the user chose "turn on
+# anyway"; plugging in clears that choice.
+function Get-ServerModeDecision {
+    param([bool]$Enabled, [bool]$IgnoreBatteryLimit, [bool]$OnAC, [int]$Percent, [int]$Limit)
+    $ignore = $IgnoreBatteryLimit -and -not $OnAC
+    $batteryOk = $OnAC -or $ignore -or ($Percent -gt $Limit)
+    [pscustomobject]@{
+        Active             = $Enabled -and $batteryOk
+        Reason             = if (-not $Enabled) { 'off' } elseif (-not $batteryOk) { 'battery' } else { 'on' }
+        IgnoreBatteryLimit = $ignore
+    }
+}
+
 # Brings the power plan in line with the desired state and the battery rule.
 # Safe to call often and from several processes.
 function Sync-ServerMode {
@@ -209,13 +223,13 @@ function Sync-ServerMode {
     $power = Get-PowerStatus
     Update-State {
         param($s)
-        if ($power.onAC) { $s.ignoreBatteryLimit = $false }
-        $batteryOk = $power.onAC -or $s.ignoreBatteryLimit -or ($power.percent -gt $conf.batteryLimit)
-        $want = $s.enabled -and $batteryOk
+        $d = Get-ServerModeDecision $s.enabled $s.ignoreBatteryLimit $power.onAC $power.percent $conf.batteryLimit
+        $s.ignoreBatteryLimit = $d.IgnoreBatteryLimit
+        $want = $d.Active
+        $reason = $d.Reason
 
         if ($want) { Enable-PowerOverride $s } else { Disable-PowerOverride $s }
 
-        $reason = if (-not $s.enabled) { 'off' } elseif (-not $batteryOk) { 'battery' } else { 'on' }
         if ($reason -ne $s.reason) { Write-Log "Server mode: $($s.reason) -> $reason ($Source, battery $($power.percent)%, AC=$($power.onAC))" }
         $s.active  = $want
         $s.reason  = $reason
@@ -248,4 +262,4 @@ function Clear-WorkingSet {
 Export-ModuleMember -Function Write-Log, Get-Config, Get-State, Update-State, Set-ServerMode,
     Set-ServiceEnabled, Get-PowerStatus, Sync-ServerMode, Set-KeepAwake, Get-Services,
     Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet,
-    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb
+    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb, Get-ServerModeDecision, Get-HookEvents

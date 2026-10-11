@@ -3,7 +3,7 @@
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
 
-foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode Shutdown') {
+foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode Shutdown', 'LaptopServerMode KeepAwake') {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $n
         Unregister-ScheduledTask -TaskName $n -Confirm:$false
@@ -11,7 +11,7 @@ foreach ($n in 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServ
 }
 
 Get-CimInstance Win32_Process | Where-Object {
-    ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog)\.ps1') -or
+    ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '\\(Tray|Watchdog|KeepAwake)\.ps1') -or
     ($_.Name -eq 'wsl.exe' -and $_.CommandLine -like '*-- sleep infinity*')
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Remove-Item 'HKCU:\Software\Classes\AppUserModelId\LaptopServerMode' -Recurse -ErrorAction SilentlyContinue

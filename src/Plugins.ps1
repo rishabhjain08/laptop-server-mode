@@ -155,6 +155,21 @@ function Invoke-ServiceVerb {
     Invoke-PluginCode $Service "& '$($path -replace "'", "''")' $Verb; exit `$LASTEXITCODE"
 }
 
+# The hook events one watchdog round fires: "boot" once per Windows boot, and
+# server-on / server-off / server-paused when server mode changed state since
+# the last round (whoever changed it). Each event is @(name, extra env vars).
+function Get-HookEvents {
+    param($State, [string]$Boot)
+    $names  = @{ on = 'server-on'; battery = 'server-paused'; off = 'server-off' }
+    $states = @{ on = 'on'; battery = 'paused'; off = 'off' }
+    $events = @()
+    if ($State.lastBoot -ne $Boot) { $events += ,@('boot', @{}) }
+    if ($State.hookReason -and $State.hookReason -ne $State.reason) {
+        $events += ,@($names[[string]$State.reason], @{ LSM_PREVIOUS = $states[[string]$State.hookReason] })
+    }
+    ,$events
+}
+
 # Runs every enabled plugin's hook for $Event, one after another.
 function Invoke-Hooks {
     param([string]$Event, [hashtable]$Env = @{}, [int]$TimeoutSec = 60)

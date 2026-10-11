@@ -15,6 +15,7 @@ A tray toggle for Windows laptops that keeps the laptop working as a server (lid
 | Power override | Turning ON copies your *current* power plan into a temporary plan that changes only lid close (do nothing), sleep, hibernate and unattended sleep (never). Turning OFF switches back to your plan and deletes the copy. Your own plans are never edited. |
 | Battery rule | On battery, server mode pauses at 35% (configurable) and your normal settings take over. It resumes when you plug in. If the battery is already below the limit when you turn it on, you're asked to plug in first, with an option to continue anyway. |
 | Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, keeps WSL running, restarts plugin services that stop and runs hooks. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
+| Keep-awake | With the lid closed, Windows is in Modern Standby, and a "keep the system awake" request is what keeps it working. The watchdog holds one; a second small task holds another, so the laptop stays up even while a crashed watchdog is restarted (within 5 minutes). |
 | Tray | Starts when you sign in. A laptop icon with a green badge when ON, amber when paused by battery, and none when OFF. Left-click toggles; right-click opens a flyout with each service's status and switch. |
 
 The tray follows Windows 11's look: light and dark themes, your accent color, high DPI and keyboard navigation. Notifications show as "Laptop Server Mode".
@@ -159,6 +160,7 @@ A few notes:
 ## Development
 
 - Edit files in `src/`, then re-run `./install.sh` to deploy.
+- `tests/run.sh` runs the automated tests on a temporary copy (no power or service changes): every combination of the server-mode rule, the keep-awake rule, hook events and the service lifecycle.
 - `src/Plugins.ps1` runs plugins; `src/ServerMode.psm1` handles power and state; `src/Flyout.cs` and `src/TrayUi.cs` draw the tray UI and are compiled when the tray starts, so the repo contains no binaries.
 - Preview the UI without clicking around (from the install folder):
   - `Tray.ps1 -Preview flyout -Out <folder>` saves PNGs of every flyout state in both themes.
