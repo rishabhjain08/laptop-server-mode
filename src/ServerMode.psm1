@@ -62,11 +62,20 @@ function New-State {
 
 function Read-StateFile {
     $s = New-State
-    if (Test-Path $StatePath) {
+    # Lock-free readers (Get-State) can race a save, so retry briefly.
+    for ($i = 1; $i -le 5; $i++) {
+        if (-not (Test-Path $StatePath)) {
+            if ($i -lt 5) { Start-Sleep -Milliseconds 100; continue }
+            return $s   # first run
+        }
         try {
-            $json = Get-Content $StatePath -Raw | ConvertFrom-Json
+            $json = [IO.File]::ReadAllText($StatePath) | ConvertFrom-Json
             foreach ($p in $json.PSObject.Properties) { $s | Add-Member -Force $p.Name $p.Value }
-        } catch { Write-Log "state.json unreadable, starting fresh: $_" }
+            return $s
+        } catch {
+            if ($i -eq 5) { Write-Log "state.json unreadable, starting fresh: $_" }
+            else { Start-Sleep -Milliseconds 100 }
+        }
     }
     $s
 }
@@ -87,7 +96,9 @@ function Update-State {
         $state = & $Body $state
         $tmp = "$StatePath.tmp"
         $state | ConvertTo-Json -Depth 5 | Set-Content -Path $tmp -Encoding ASCII
-        Move-Item $tmp $StatePath -Force
+        # Replace in one step, so readers never see the file missing.
+        if (Test-Path $StatePath) { [IO.File]::Replace($tmp, $StatePath, [NullString]::Value) }
+        else { Move-Item $tmp $StatePath }
         $state
     } finally { $lock.Dispose() }
 }
