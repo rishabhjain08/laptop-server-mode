@@ -132,10 +132,9 @@ Set its folder first, since Claude never remembers trust for your home folder:
 { "folder": "~/projects", "name": "my-laptop" }
 ```
 
-in `%LOCALAPPDATA%\LaptopServerMode\plugins\claude-main\settings.json`. Older
-installs may have `NAME`, `DIR` and `FLAGS` in
-`~/.config/laptop-server-mode/claude-main.env`; they still work, and
-`settings.json` wins where both are set.
+in `%LOCALAPPDATA%\LaptopServerMode\plugins\claude-main\settings.json`. (Older
+versions used `~/.config/laptop-server-mode/claude-main.env`; `install.sh`
+moves it into `settings.json`.)
 
 Open it with `tmux attach -t my-laptop` (or `Ctrl-b s` inside tmux). Stopping it
 kills only that tmux session, never your other ones.

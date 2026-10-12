@@ -13,22 +13,13 @@
 #                   bypassPermissions (full access to your account: think twice)
 #   name            [claude-main] tmux session and name in the Claude app
 #   folder          [~] working directory; must be trusted (run `claude` there once)
-# Older installs may set NAME, DIR and FLAGS in
-# ~/.config/laptop-server-mode/claude-main.env instead; settings win.
 # Usage: claude-main.sh start|check|stop
 set -u
-NAME=claude-main
-DIR=$HOME
-FLAGS=
-CONF=$HOME/.config/laptop-server-mode/claude-main.env
-[ -f "$CONF" ] && . "$CONF"
-[ -n "${LSM_SETTING_NAME:-}" ] && NAME=$LSM_SETTING_NAME
-[ -n "${LSM_SETTING_FOLDER:-}" ] && DIR=${LSM_SETTING_FOLDER/#\~/$HOME}
+NAME=${LSM_SETTING_NAME:-claude-main}
+DIR=${LSM_SETTING_FOLDER:-$HOME}
+DIR=${DIR/#\~/$HOME}
 MODE=${LSM_SETTING_MODE:-session}
-PERM=${LSM_SETTING_PERMISSION_MODE:-}
-if [ -z "$PERM" ]; then   # from FLAGS (older installs), else default
-  case "$FLAGS" in *--dangerously-skip-permissions*) PERM=bypassPermissions ;; *) PERM=default ;; esac
-fi
+PERM=${LSM_SETTING_PERMISSION_MODE:-default}
 STATE=$HOME/.local/state/laptop-server-mode
 SIG="$MODE|$PERM|$NAME|$DIR"   # what the running Claude was started with
 ME=${LSM_PLUGIN:-claude-main}   # state files are per plugin, so copies of it never collide

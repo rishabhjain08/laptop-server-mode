@@ -55,6 +55,8 @@ switch ($Command) {
             Get-Services | Where-Object { (Split-Path $_.dir -Leaf) -eq $name -and -not (Get-PluginProblem $_) } |
                 ForEach-Object { Invoke-ServiceVerb $_ 'stop' | Out-Null }
             Remove-Item $dir -Recurse -Force
+            # Forget its tray switch too, so a later add starts from its default.
+            Update-State { param($s) $s.services.PSObject.Properties.Remove($name); $s } | Out-Null
             "Removed $name"
         }
     }

@@ -46,6 +46,30 @@ echo "==> $BOX self-test"
 box_root bash -s < "$HERE/selftest.sh" | tr -d '\r'
 fi
 
+# Older versions read claude-main's settings from ~/.config/laptop-server-mode/
+# claude-main.env (NAME, DIR, FLAGS). Move them into its settings.json (before
+# the new plugin is copied in, so a running Claude keeps its settings), then
+# delete the old file.
+OLD=$HOME/.config/laptop-server-mode/claude-main.env
+SET_DIR="$(wslpath -u "$(win_env LOCALAPPDATA)")/LaptopServerMode/plugins/claude-main"
+if [ -f "$OLD" ]; then
+  if [ ! -f "$SET_DIR/settings.json" ]; then
+    (
+      NAME=; DIR=; FLAGS=; . "$OLD"
+      case "$FLAGS" in *--dangerously-skip-permissions*) PERM=bypassPermissions ;; *) PERM= ;; esac
+      f=${DIR/#$HOME/\~}
+      mkdir -p "$SET_DIR"
+      { printf '{'; sep=
+        [ -n "$NAME" ] && { printf '%s "name": "%s"' "$sep" "$NAME"; sep=,; }
+        [ -n "$f" ] && { printf '%s "folder": "%s"' "$sep" "$f"; sep=,; }
+        [ -n "$PERM" ] && printf '%s "permissionMode": "%s"' "$sep" "$PERM"
+        printf ' }\n'; } > "$SET_DIR/settings.json"
+    )
+    echo "==> Moved claude-main.env into plugins\\claude-main\\settings.json: $(cat "$SET_DIR/settings.json")"
+  fi
+  rm -f "$OLD"; rmdir "$(dirname "$OLD")" 2>/dev/null || true
+fi
+
 echo "==> Installing plugins"
 plugins=("$HERE/plugins/claude-main")
 [ $WANT_BOX = 1 ] && plugins+=("$HERE/plugins/claude")

@@ -5,5 +5,5 @@
   "script": "claude-main.sh",
   "enabledByDefault": false,
   "stopWhenServerModeOff": false,
-  "settings": { "mode": "session", "permissionMode": "", "name": "", "folder": "" }
+  "settings": { "mode": "session", "permissionMode": "default", "name": "claude-main", "folder": "" }
 }
