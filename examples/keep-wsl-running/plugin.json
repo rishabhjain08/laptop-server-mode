@@ -1,0 +1,7 @@
+{
+  "name": "keep-wsl-running",
+  "title": "Keep WSL running",
+  "runsIn": "wsl",
+  "run": "exec sleep infinity",
+  "stopWhenServerModeOff": true
+}

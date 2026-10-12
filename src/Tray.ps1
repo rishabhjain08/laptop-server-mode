@@ -231,6 +231,7 @@ function Update-Flyout {
         $row.Title = $svc.title
         $row.On = Test-ServiceEnabled $svc $State
         $row.Status = if ($st) { $st.Value.status } else { 'stopped' }
+        $row.Detail = if ($st -and $st.Value.PSObject.Properties['detail'] -and $st.Value.status -in 'needs-setup', 'failing') { [string]$st.Value.detail } else { $null }
         $flyout.Services.Add($row)
     }
     $flyout.Relayout()
@@ -281,6 +282,7 @@ if ($Preview -eq 'flyout') {
         foreach ($case in 'battery', 'off') {
             $flyout.Reason = $case; $flyout.ServerOn = $case -ne 'off'; $flyout.WatchdogDown = $case -eq 'off'
             $flyout.Services[0].Status = if ($case -eq 'off') { 'needs-setup' } else { 'failing' }
+            $flyout.Services[0].Detail = if ($case -eq 'off') { 'WSL is not installed (or has no Linux distro).' } else { 'Exit code 1' }
             $flyout.SavePreview((Join-Path $Out "flyout-$name-$case.png"), 1)
         }
     }

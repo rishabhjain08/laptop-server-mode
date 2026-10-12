@@ -1,0 +1,13 @@
+{
+  "name": "event-log-windows",
+  "title": "Event log (Windows)",
+  "runsIn": "windows",
+  "on": {
+    "boot":           ".\\log.ps1",
+    "server-on":      ".\\log.ps1",
+    "server-off":     ".\\log.ps1",
+    "server-paused":  ".\\log.ps1",
+    "service-failed": ".\\log.ps1",
+    "shutdown":       ".\\log.ps1"
+  }
+}

@@ -291,4 +291,5 @@ function Clear-WorkingSet {
 Export-ModuleMember -Function Write-Log, Get-Config, Get-State, Update-State, Set-ServerMode,
     Set-ServiceEnabled, Get-PowerStatus, Sync-ServerMode, Set-KeepAwake, Get-Services,
     Test-ServiceEnabled, Sync-Services, Disable-PowerOverride, Stop-AllServices, Clear-WorkingSet,
-    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb, Get-ServerModeDecision, Get-HookEvents
+    Get-Plugins, Get-PluginDistro, Invoke-Hooks, Invoke-ServiceVerb, Get-ServerModeDecision, Get-HookEvents,
+    Get-WslDistros, Get-PluginProblem, Get-PluginSettings, Get-HeldDistros

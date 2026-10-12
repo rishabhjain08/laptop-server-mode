@@ -72,6 +72,112 @@ foreach ($lastBoot in 'B1', 'B0', $null) { foreach ($hookReason in $null, 'on', 
 } } }
 Write-Output "hook events: $n combinations"
 
+# ------------------------------------------------------------ WSL optional
+# WSL detection is mocked: $script:MockWsl is what "this PC" has installed.
+& $m { $script:MockWsl = $null; function script:Get-WslDistros { $script:MockWsl } }
+function Set-Wsl([string[]]$Names, [string]$Default) { & $m { param($n, $d) $script:MockWsl = [pscustomobject]@{ names = @($n | Where-Object { $_ }); default = $d } } $Names $Default }
+function New-Plugin([string]$Name, [string]$Json, [hashtable]$Files = @{}) {
+    $d = "$tmp\plugins\$Name"; New-Item -ItemType Directory -Force $d | Out-Null
+    $Json | Set-Content "$d\plugin.json"
+    foreach ($f in $Files.Keys) { $Files[$f] | Set-Content "$d\$f" }
+    Get-Plugins | Where-Object name -eq $Name
+}
+Remove-Item "$tmp\plugins\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Which distro a WSL plugin runs in: plugin > config.json > Windows' default.
+Set-Wsl 'Ubuntu', 'Debian' 'Ubuntu'
+$own = New-Plugin 'own' '{ "name": "own", "run": "x", "wslDistro": "Debian" }'
+$plain = New-Plugin 'plain' '{ "name": "plain", "run": "x" }'
+Check 'distro: plugin setting wins' ((Get-PluginDistro $own) -eq 'Debian')
+Check 'distro: then config.json' ((Get-PluginDistro $plain) -eq 'TestDistro')
+'{ "batteryLimit": 35, "pollSeconds": 15, "wslDistro": "" }' | Set-Content "$tmp\config.json"
+Check 'distro: then Windows default' ((Get-PluginDistro $plain) -eq 'Ubuntu') "got $(Get-PluginDistro $plain)"
+'{ "batteryLimit": 35, "pollSeconds": 15 }' | Set-Content "$tmp\config.json"
+Check 'distro: config without wslDistro -> Windows default' ((Get-PluginDistro $plain) -eq 'Ubuntu')
+
+# Problems: why a plugin can't run here.
+$win = New-Plugin 'win' '{ "name": "win", "runsIn": "windows", "run": "x" }'
+$noScript = New-Plugin 'noscript' '{ "name": "noscript", "runsIn": "windows", "script": "gone.ps1" }'
+$badRuns = New-Plugin 'badruns' '{ "name": "badruns", "runsIn": "mac", "run": "x" }'
+$ghost = New-Plugin 'ghost' '{ "name": "ghost", "run": "x", "wslDistro": "Arch" }'
+Check 'problem: WSL plugin with WSL -> none' (-not (Get-PluginProblem $plain))
+Check 'problem: missing distro named' ((Get-PluginProblem $ghost) -match "'Arch' is not installed.*Ubuntu, Debian") "got $(Get-PluginProblem $ghost)"
+Check 'problem: Windows plugin -> none' (-not (Get-PluginProblem $win))
+Check 'problem: missing script' ((Get-PluginProblem $noScript) -match 'gone\.ps1')
+Check 'problem: bad runsIn' ((Get-PluginProblem $badRuns) -match 'mac')
+Set-Wsl @() $null
+Check 'problem: no WSL -> WSL plugin needs setup' ((Get-PluginProblem $plain) -match 'WSL is not installed')
+Check 'problem: no WSL -> Windows plugin fine' (-not (Get-PluginProblem $win))
+Check 'distro: no WSL, no config -> none' (-not (Get-PluginDistro $plain))
+
+# Held distros: only for WSL services that should be running and can run.
+Remove-Item "$tmp\plugins\*" -Recurse -Force
+Set-Wsl 'Ubuntu', 'Debian' 'Ubuntu'
+$null = New-Plugin 'a' '{ "name": "a", "run": "x" }'                                                   # default distro, keeps running when OFF
+$null = New-Plugin 'b' '{ "name": "b", "run": "x", "wslDistro": "Debian", "stopWhenServerModeOff": true }'
+$null = New-Plugin 'c' '{ "name": "c", "run": "x", "wslDistro": "Arch" }'                              # not installed
+$null = New-Plugin 'd' '{ "name": "d", "runsIn": "windows", "run": "x" }'
+$null = New-Plugin 'e' '{ "name": "e", "run": "x", "enabledByDefault": false }'
+$null = New-Plugin 'f' '{ "name": "f", "on": { "boot": "x" } }'                                         # hooks only
+$n = 0
+foreach ($server in $true, $false) { foreach ($aOn in $true, $false) { foreach ($bOn in $true, $false) {
+    $st = [pscustomobject]@{ enabled = $server; services = [pscustomobject]@{ a = $aOn; b = $bOn } }
+    $exp = @(); if ($aOn) { $exp += 'Ubuntu' }; if ($bOn -and $server) { $exp += 'Debian' }
+    $got = @(Get-HeldDistros $st)
+    Check "held distros [server=$server a=$aOn b=$bOn]" ((($got | Sort-Object) -join ',') -eq (($exp | Sort-Object) -join ',')) "got '$($got -join ',')' want '$($exp -join ',')'"
+    $n++
+} } }
+Set-Wsl @() $null
+Check 'held distros: no WSL -> none' (@(Get-HeldDistros ([pscustomobject]@{ enabled = $true; services = [pscustomobject]@{} })).Count -eq 0)
+Write-Output "held distros: $n combinations + no-WSL case"
+
+# No WSL: WSL services need setup (said once, never started); Windows ones run.
+Remove-Item "$tmp\plugins\*" -Recurse -Force
+Remove-Item "$tmp\logs\watchdog.log" -ErrorAction SilentlyContinue
+$null = New-Plugin 'lin' '{ "name": "lin", "run": "x" }'
+$state = [pscustomobject]@{ enabled = $true; services = [pscustomobject]@{}; serviceStatus = [pscustomobject]@{} }
+Sync-Services $state; Sync-Services $state
+Check 'no WSL: needs-setup with reason' ($state.serviceStatus.lin.status -eq 'needs-setup' -and $state.serviceStatus.lin.detail -match 'WSL is not installed') "status=$($state.serviceStatus.lin.status)"
+Check 'no WSL: logged once' (@(Select-String "$tmp\logs\watchdog.log" -Pattern '\[lin\] needs setup').Count -eq 1)
+$state.enabled = $false; Sync-Services $state
+Check 'no WSL + server OFF: shown stopped' ($state.serviceStatus.lin.status -eq 'stopped')
+Set-Wsl 'Ubuntu' 'Ubuntu'
+$state.enabled = $true; $state.serviceStatus.lin.status = 'needs-setup'
+
+# Settings: plugin.json defaults, settings.json overrides, env var names.
+Remove-Item "$tmp\plugins\*" -Recurse -Force
+$sp = New-Plugin 'sets' '{ "name": "sets", "runsIn": "windows", "settings": { "mode": "session", "permissionMode": "default", "port": 8080, "verbose": false } }' @{ 'settings.json' = '{ "mode": "server", "verbose": true }' }
+$v = Get-PluginSettings $sp
+Check 'settings: override wins' ($v['LSM_SETTING_MODE'] -eq 'server')
+Check 'settings: default kept' ($v['LSM_SETTING_PERMISSION_MODE'] -eq 'default')
+Check 'settings: number as text' ($v['LSM_SETTING_PORT'] -eq '8080')
+Check 'settings: bool lowercase' ($v['LSM_SETTING_VERBOSE'] -eq 'true')
+'{ "mode": ' | Set-Content "$tmp\plugins\sets\settings.json"
+$v = Get-PluginSettings $sp; $v = Get-PluginSettings $sp
+Check 'settings: invalid settings.json -> defaults' ($v['LSM_SETTING_MODE'] -eq 'session')
+Check 'settings: invalid settings.json logged once' (@(Select-String "$tmp\logs\watchdog.log" -Pattern 'settings.json is invalid').Count -eq 1)
+$np = New-Plugin 'nosets' '{ "name": "nosets", "runsIn": "windows" }'
+Check 'settings: none -> empty' ((Get-PluginSettings $np).Count -eq 0)
+
+# Real hooks and run services get the settings; hooks for a missing distro are skipped.
+Remove-Item "$tmp\plugins\*" -Recurse -Force
+$null = New-Plugin 'hk' '{ "name": "hk", "runsIn": "windows", "settings": { "color": "blue" }, "on": { "boot": "Set-Content out.txt \"$env:LSM_EVENT $env:LSM_SETTING_COLOR\"" } }'
+$null = New-Plugin 'hkwsl' '{ "name": "hkwsl", "wslDistro": "Arch", "on": { "boot": "echo hi" } }'
+Invoke-Hooks 'boot'
+Check 'hook (Windows) ran with settings' ((Get-Content "$tmp\plugins\hk\out.txt" -Raw -ErrorAction SilentlyContinue) -match '^boot blue') "got $(Get-Content "$tmp\plugins\hk\out.txt" -Raw -ErrorAction SilentlyContinue)"
+Check 'hook for missing distro skipped' ((Get-Content "$tmp\logs\hooks.log" -Raw) -match "\[hkwsl\] boot hook skipped: WSL distro 'Arch'")
+$rp = New-Plugin 'rs' '{ "name": "rs", "runsIn": "windows", "run": "echo setting=%LSM_SETTING_GREETING% plugin=%LSM_PLUGIN%", "settings": { "greeting": "hello" } }'
+$null = Invoke-ServiceVerb $rp 'start'
+$deadline = (Get-Date).AddSeconds(10)
+while (-not ((Get-Content "$tmp\logs\rs.log" -Raw -ErrorAction SilentlyContinue) -match 'setting=hello') -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+Check 'Windows run service gets settings' ((Get-Content "$tmp\logs\rs.log" -Raw -ErrorAction SilentlyContinue) -match 'setting=hello plugin=rs') "got $(Get-Content "$tmp\logs\rs.log" -Raw -ErrorAction SilentlyContinue)"
+Check 'settings not left in the watchdog''s environment' (-not $env:LSM_SETTING_GREETING)
+$null = Invoke-ServiceVerb $rp 'stop'
+Remove-Item "$tmp\plugins\*" -Recurse -Force
+'{ "batteryLimit": 35, "pollSeconds": 15, "wslDistro": "TestDistro" }' | Set-Content "$tmp\config.json"
+Set-Wsl 'TestDistro' 'TestDistro'
+Write-Output 'WSL optional: done'
+
 # ------------------------------------------------------------ service lifecycle
 # Mocks: verbs return scripted codes; sleeps are skipped; hooks are recorded.
 & $m {
@@ -203,6 +309,7 @@ Check 'plugins: only valid ones load' ((($pl.name | Sort-Object) -join ',') -eq 
 Check 'plugins: services are run/script ones' (((@(Get-Services).name | Sort-Object) -join ',') -eq 'ok-run,ok-script')
 Check 'plugins: defaults' (($pl | Where-Object name -eq 'ok-run').runsIn -eq 'wsl' -and ($pl | Where-Object name -eq 'ok-run').title -eq 'ok-run' -and ($pl | Where-Object name -eq 'ok-run').enabledByDefault)
 Check 'plugins: distro falls back to config' ((Get-PluginDistro ($pl | Where-Object name -eq 'ok-run')) -eq 'TestDistro')
+Check 'plugins: settings default' ($null -eq ($pl | Where-Object name -eq 'ok-run').settings)
 
 # ------------------------------------------------------------ damaged files
 Remove-Item "$tmp\state.json*" -ErrorAction SilentlyContinue

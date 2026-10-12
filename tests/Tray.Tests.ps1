@@ -37,6 +37,7 @@ if ($Mode -eq 'setup') {
         function script:Disable-PowerOverride { param($State) $State.serverPlan = $null }
         function script:Invoke-ServiceVerb { param($Service, $Verb) [void]$script:Verbs.Add("$($Service.name):$Verb"); [pscustomobject]@{ Code = 0; Output = '' } }
         function script:Invoke-Hidden { param($File, $Arguments) [void]$script:Verbs.Add("hidden:$Arguments"); [pscustomobject]@{ Code = 0; Output = '' } }
+        function script:Get-WslDistros { [pscustomobject]@{ names = @('Test'); default = 'Test' } }
     }
     # Calls from Tray.ps1 (including WinForms event handlers) go to the
     # module's exported command, which keeps the original function; replace it.
@@ -141,6 +142,15 @@ Check 'G3 stop all switches every service off' (-not $s.services.'svc-a' -and -n
 Check 'G3 stop all stops them now' ((Verbs) -contains 'svc-a:stop' -and (Verbs) -contains 'svc-b:stop') "verbs=$((Verbs) -join ',')"
 Check 'G3 statuses show stopped' ($s.serviceStatus.'svc-a'.status -eq 'stopped')
 Check 'G3 tells you' ($Notes -contains 'All services stopped')
+
+# G4: a service that needs setup shows why on hover; a running one has no tip
+Update-State { param($s) $s.serviceStatus = [pscustomobject]@{
+    'svc-a' = [pscustomobject]@{ status = 'needs-setup'; failures = 0; retryAt = $null; detail = 'WSL is not installed.' }
+    'svc-b' = [pscustomobject]@{ status = 'running'; failures = 0; retryAt = $null; detail = 'stale' } }; $s } | Out-Null
+Update-Flyout
+$rows = @($flyout.Services)
+Check 'G4 needs-setup row carries its reason' (($rows | Where-Object Name -eq 'svc-a').Detail -eq 'WSL is not installed.')
+Check 'G4 running row has no reason' (-not ($rows | Where-Object Name -eq 'svc-b').Detail)
 
 # H2: banner, screen off, logs
 Update-State { param($s) $s.heartbeat = (Get-Date).AddMinutes(-10).ToString('o'); $s } | Out-Null

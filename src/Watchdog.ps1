@@ -1,6 +1,7 @@
 # Runs at boot (before anyone signs in) and loops forever:
-# re-applies server mode, applies the battery rule, keeps WSL and services up,
-# and runs plugin hooks (boot, server-on, server-off, server-paused).
+# re-applies server mode, applies the battery rule, keeps plugin services (and
+# the WSL distros they run in) up, and runs plugin hooks (boot, server-on,
+# server-off, server-paused).
 Import-Module (Join-Path $PSScriptRoot 'ServerMode.psm1') -Force
 
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
@@ -40,15 +41,10 @@ while ($true) {
         foreach ($f in $fire) { Invoke-Hooks $f[0] $f[1] }
 
 
-        # WSL stops a distro when no Windows process holds it open. Keep the
-        # main distro up while server mode is ON, and each WSL service's
-        # distro up while that service is enabled (services keep running
-        # when server mode is OFF).
+        # WSL stops a distro when no Windows process holds it open. Hold the
+        # distros of WSL services that should be running (none without WSL).
         $want = @{}
-        if ($state.enabled -and $conf.wslDistro) { $want[$conf.wslDistro] = $true }
-        foreach ($svc in @(Get-Services)) {
-            if ($svc.runsIn -eq 'wsl' -and (Test-ServiceEnabled $svc $state)) { $want[(Get-PluginDistro $svc)] = $true }
-        }
+        foreach ($d in @(Get-HeldDistros $state)) { $want[$d] = $true }
         foreach ($d in @($want.Keys)) {
             $k = $keepAlive[$d]
             if (-not $k -or $k.HasExited) {

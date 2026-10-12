@@ -6,12 +6,18 @@
 #   script  file called with start | check | stop (a service with full control)
 #   on      { "<event>": "<command>" } hooks
 # plus name, title, runsIn (wsl | windows), wslDistro, wslUser,
-# enabledByDefault, stopWhenServerModeOff.
+# enabledByDefault, stopWhenServerModeOff, and settings (defaults that the
+# user overrides in the plugin's settings.json; passed as LSM_SETTING_*).
+#
+# WSL is optional: plugins that run in WSL report "needs setup" when WSL or
+# their distro isn't installed, and everything else keeps working.
 
 $script:PluginDir = Join-Path $Root 'plugins'
 $script:HookEvents = 'boot', 'server-on', 'server-off', 'server-paused', 'service-failed', 'shutdown'
 $script:Wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $script:BadPlugins = @{}
+$script:WslCache = $null
+$script:WslCacheAt = [datetime]::MinValue
 
 # Keeps a `run` command alive in WSL. Double-forked (setsid -f) so it
 # outlives the wsl.exe call that started it, like a daemon.
@@ -48,7 +54,7 @@ function Get-Plugins {
         $BadPlugins.Remove($file)
         $defaults = [ordered]@{
             title = $p.name; runsIn = 'wsl'; wslDistro = $null; wslUser = $null; run = $null; script = $null
-            on = $null; enabledByDefault = $true; stopWhenServerModeOff = $false
+            on = $null; enabledByDefault = $true; stopWhenServerModeOff = $false; settings = $null
         }
         foreach ($k in $defaults.Keys) { if (-not $p.PSObject.Properties[$k]) { $p | Add-Member $k $defaults[$k] } }
         $p | Add-Member -Force dir $d.FullName
@@ -66,9 +72,85 @@ function Test-ServiceEnabled {
     if ($p) { [bool]$p.Value } else { [bool]$Service.enabledByDefault }
 }
 
+# Installed WSL distros and the default one. Read from the registry WSL
+# itself uses, so it's cheap and safe when WSL isn't installed; falls back to
+# `wsl --list` if the registry can't be read. Cached for 30 seconds.
+function Get-WslDistros {
+    if ($WslCache -and ((Get-Date) - $WslCacheAt).TotalSeconds -lt 30) { return $WslCache }
+    $r = [pscustomobject]@{ names = @(); default = $null }
+    if (Test-Path $Wsl) {
+        $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+        $def = (Get-ItemProperty $key -ErrorAction SilentlyContinue).DefaultDistribution
+        foreach ($k in @(Get-ChildItem $key -ErrorAction SilentlyContinue)) {
+            $n = (Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue).DistributionName
+            if (-not $n) { continue }
+            $r.names += $n
+            if ($k.PSChildName -eq $def) { $r.default = $n }
+        }
+        if (-not $r.names) {
+            $l = Invoke-Hidden $Wsl '--list --quiet' -TimeoutSec 20
+            if ($l.Code -eq 0) { $r.names = @($l.Output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+            if ($r.names) { $r.default = $r.names[0] }   # `wsl --list` puts the default first
+        }
+    }
+    $script:WslCache = $r; $script:WslCacheAt = Get-Date
+    $r
+}
+
+# The distro a WSL plugin runs in: its own wslDistro, else config.json's,
+# else Windows' default distro.
 function Get-PluginDistro {
     param($Plugin)
-    if ($Plugin.wslDistro) { $Plugin.wslDistro } else { (Get-Config).wslDistro }
+    if ($Plugin.wslDistro) { return $Plugin.wslDistro }
+    $c = (Get-Config).wslDistro
+    if ($c) { return $c }
+    (Get-WslDistros).default
+}
+
+# Why a plugin can't run on this PC (a sentence for the log and the tray),
+# or $null when it can.
+function Get-PluginProblem {
+    param($Plugin)
+    if ($Plugin.runsIn -eq 'wsl') {
+        $w = Get-WslDistros
+        if (-not $w.names) { return 'WSL is not installed (or has no Linux distro). Install WSL, or use a plugin that runs on Windows.' }
+        $d = Get-PluginDistro $Plugin
+        if ($d -and $w.names -notcontains $d) { return "WSL distro '$d' is not installed. Installed: $($w.names -join ', ')." }
+    } elseif ($Plugin.runsIn -ne 'windows') {
+        return "runsIn must be 'wsl' or 'windows', not '$($Plugin.runsIn)'."
+    }
+    if ($Plugin.script -and -not (Test-Path (Join-Path $Plugin.dir $Plugin.script))) {
+        return "Its script '$($Plugin.script)' is missing from the plugin folder."
+    }
+    $null
+}
+
+# A plugin's settings: the defaults in plugin.json's "settings", overridden
+# by the user's settings.json in the plugin folder (kept when the plugin is
+# updated). Returned as LSM_SETTING_<NAME> environment variables, e.g.
+# "permissionMode" becomes LSM_SETTING_PERMISSION_MODE.
+function Get-PluginSettings {
+    param($Plugin)
+    $s = [ordered]@{}
+    if ($Plugin.settings) { foreach ($p in $Plugin.settings.PSObject.Properties) { $s[$p.Name] = $p.Value } }
+    $file = Join-Path $Plugin.dir 'settings.json'
+    if (Test-Path $file) {
+        try {
+            $u = Get-Content $file -Raw | ConvertFrom-Json
+            if ($u) { foreach ($p in $u.PSObject.Properties) { $s[$p.Name] = $p.Value } }
+            $BadPlugins.Remove($file)
+        } catch {
+            if (-not $BadPlugins[$file]) { Write-Log "[$($Plugin.name)] settings.json is invalid, using the defaults: $_" }
+            $BadPlugins[$file] = $true
+        }
+    }
+    $vars = [ordered]@{}
+    foreach ($k in $s.Keys) {
+        $name = 'LSM_SETTING_' + (($k -creplace '([a-z0-9])([A-Z])', '${1}_${2}') -replace '[^A-Za-z0-9]', '_').ToUpper()
+        $v = $s[$k]
+        $vars[$name] = if ($v -is [bool]) { "$v".ToLower() } elseif ($null -eq $v) { '' } elseif ($v -is [string] -or $v -is [ValueType]) { [string]$v } else { $v | ConvertTo-Json -Compress -Depth 5 }
+    }
+    $vars
 }
 
 function ConvertTo-WslPath {
@@ -95,6 +177,8 @@ function Invoke-Hidden {
 function Invoke-PluginCode {
     param($Plugin, [string]$Code, [string[]]$Arguments = @(), [hashtable]$Env = @{}, [int]$TimeoutSec = 60)
     $vars = [ordered]@{ LSM_PLUGIN = $Plugin.name }
+    $settings = Get-PluginSettings $Plugin
+    foreach ($k in $settings.Keys) { $vars[$k] = $settings[$k] }
     foreach ($k in $Env.Keys) { $vars[$k] = [string]$Env[$k] }
     if ($Plugin.runsIn -eq 'wsl') {
         $vars['LSM_PLUGIN_DIR'] = ConvertTo-WslPath $Plugin.dir
@@ -131,8 +215,16 @@ function Invoke-WindowsRun {
             if (-not $proc) {
                 New-Item -ItemType Directory -Force $runDir, $LogDir | Out-Null
                 $log = Join-Path $LogDir "$($Service.name).log"
-                $p = Start-Process cmd.exe -ArgumentList "/d /c $($Service.run) >> `"$log`" 2>&1" `
-                    -WorkingDirectory $Service.dir -WindowStyle Hidden -PassThru
+                # The command inherits these (set here only for the start).
+                $vars = Get-PluginSettings $Service
+                $vars['LSM_PLUGIN'] = $Service.name; $vars['LSM_PLUGIN_DIR'] = $Service.dir
+                foreach ($k in $vars.Keys) { [Environment]::SetEnvironmentVariable($k, $vars[$k], 'Process') }
+                try {
+                    $p = Start-Process cmd.exe -ArgumentList "/d /c $($Service.run) >> `"$log`" 2>&1" `
+                        -WorkingDirectory $Service.dir -WindowStyle Hidden -PassThru
+                } finally {
+                    foreach ($k in $vars.Keys) { [Environment]::SetEnvironmentVariable($k, $null, 'Process') }
+                }
                 "$($p.Id) $($p.StartTime.Ticks)" | Set-Content $pidFile -Encoding ASCII
             }
         }
@@ -185,6 +277,8 @@ function Invoke-Hooks {
     foreach ($p in @(Get-Plugins)) {
         if (-not $p.on -or -not $p.on.PSObject.Properties[$Event]) { continue }
         if (-not (Test-ServiceEnabled $p $state)) { continue }
+        $problem = Get-PluginProblem $p
+        if ($problem) { Write-Log "[$($p.name)] $Event hook skipped: $problem" 'hooks'; continue }
         $cmd = $p.on.$Event
         if ($p.runsIn -eq 'wsl') {
             # Login shell in the plugin folder, like `run` commands.
@@ -195,6 +289,32 @@ function Invoke-Hooks {
         $out = if ($r.Output) { ": $($r.Output)" } else { '' }
         Write-Log "[$($p.name)] $Event hook (exit $($r.Code))$out" 'hooks'
     }
+}
+
+# Sets a service's status; running and stopped clear the failure counters.
+# $Detail is the reason shown in the tray (needs-setup, failing).
+function Set-ServiceStatus {
+    param($St, [string]$Status, [string]$Detail = $null)
+    $St.status = $Status
+    if ($Status -in 'running', 'stopped', 'needs-setup') { $St.failures = 0; $St.retryAt = $null }
+    $St | Add-Member -Force detail $(if ($Detail) { $Detail } else { $null })
+}
+
+# The WSL distros to keep running: those of WSL services that should be
+# running now (enabled, and server mode ON unless the service keeps running
+# when it's OFF) and can run here. WSL stops a distro when no Windows process
+# holds it open, so the watchdog holds these.
+function Get-HeldDistros {
+    param($State)
+    $held = [ordered]@{}
+    foreach ($svc in @(Get-Services)) {
+        if ($svc.runsIn -ne 'wsl' -or -not (Test-ServiceEnabled $svc $State)) { continue }
+        if (-not $State.enabled -and $svc.stopWhenServerModeOff) { continue }
+        if (Get-PluginProblem $svc) { continue }
+        $d = Get-PluginDistro $svc
+        if ($d) { $held[$d] = $true }
+    }
+    @($held.Keys)
 }
 
 # Keeps enabled services running while server mode is ON. Retries a failing
@@ -213,36 +333,47 @@ function Sync-Services {
         $st     = if ($prev) { $prev.Value } else { [pscustomobject]@{ status = 'stopped'; failures = 0; retryAt = $null } }
         $wanted = $State.enabled -and (Test-ServiceEnabled $svc $State)
 
+        # Can't run on this PC (e.g. no WSL): say why, once, and don't retry.
+        $problem = Get-PluginProblem $svc
+        if ($problem) {
+            if ($wanted -and ($st.status -ne 'needs-setup' -or $st.detail -ne $problem)) { Write-Log "[$name] needs setup: $problem" }
+            Set-ServiceStatus $st $(if ($wanted) { 'needs-setup' } else { 'stopped' }) $problem
+            $State.serviceStatus | Add-Member -Force $name $st
+            continue
+        }
+
         if (-not $wanted) {
             $stopIt = -not (Test-ServiceEnabled $svc $State) -or $svc.stopWhenServerModeOff
             if ($stopIt -and $st.status -ne 'stopped') {
                 $r = Invoke-ServiceVerb $svc 'stop'
                 Write-Log "[$name] stopped (exit $($r.Code)) $($r.Output)"
-                $st.status = 'stopped'; $st.failures = 0; $st.retryAt = $null
+                Set-ServiceStatus $st 'stopped'
             } elseif (-not $stopIt) {
-                $st.status = if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) { 'running' } else { 'stopped' }
+                Set-ServiceStatus $st $(if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) { 'running' } else { 'stopped' })
             }
         } elseif (($chk = Invoke-ServiceVerb $svc 'check').Code -eq 0) {
             if ($st.status -ne 'running') { Write-Log "[$name] running" }
             if ($chk.Output) { Write-Log "[$name] $($chk.Output)" }   # a healthy check may report what it fixed
-            $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
+            Set-ServiceStatus $st 'running'
         } elseif (-not $st.retryAt -or $now -ge [datetime]$st.retryAt) {
             $r = Invoke-ServiceVerb $svc 'start'
             if ($r.Code -eq 3) {
                 # Needs one-time setup by a person; check again in a minute, quietly.
                 if ($st.status -ne 'needs-setup') { Write-Log "[$name] needs setup: $($r.Output)" }
-                $st.status = 'needs-setup'; $st.retryAt = $now.AddMinutes(1).ToString('o')
+                Set-ServiceStatus $st 'needs-setup' $r.Output
+                $st.retryAt = $now.AddMinutes(1).ToString('o')
                 $State.serviceStatus | Add-Member -Force $name $st
                 continue
             }
             Start-Sleep -Seconds 3
             if ((Invoke-ServiceVerb $svc 'check').Code -eq 0) {
                 Write-Log "[$name] started"
-                $st.status = 'running'; $st.failures = 0; $st.retryAt = $null
+                Set-ServiceStatus $st 'running'
             } else {
                 $st.failures = [int]$st.failures + 1
                 $wait = [math]::Min(30, [math]::Pow(2, $st.failures - 1))
                 $st.status = 'failing'; $st.retryAt = $now.AddMinutes($wait).ToString('o')
+                $st | Add-Member -Force detail $(if ($r.Output) { "$($r.Output)" } else { "Exit code $($r.Code)" })
                 Write-Log "[$name] failed to start (try $($st.failures), next in $wait min): exit $($r.Code) $($r.Output)"
                 if ($st.failures -eq 1) { Invoke-Hooks 'service-failed' @{ LSM_SERVICE = $name } }
             }
@@ -255,9 +386,11 @@ function Sync-Services {
 # their own distro are stopped by shutting that distro down.
 function Stop-AllServices {
     $conf = Get-Config
+    $default = if ($conf.wslDistro) { $conf.wslDistro } else { (Get-WslDistros).default }
     foreach ($svc in @(Get-Services)) {
         Set-ServiceEnabled $svc.name $false
-        $own = $svc.runsIn -eq 'wsl' -and $svc.wslDistro -and $svc.wslDistro -ne $conf.wslDistro
+        if (Get-PluginProblem $svc) { continue }   # can't be running
+        $own = $svc.runsIn -eq 'wsl' -and $svc.wslDistro -and $svc.wslDistro -ne $default
         if ($own) { $r = Invoke-Hidden $Wsl "--terminate $($svc.wslDistro)" } else { $r = Invoke-ServiceVerb $svc 'stop' }
         Write-Log "[$($svc.name)] emergency stop (exit $($r.Code))" 'tray'
     }

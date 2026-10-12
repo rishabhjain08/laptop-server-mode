@@ -14,6 +14,7 @@ namespace LSM
     public class FlyoutService
     {
         public string Name, Title, Status;   // Status: running | stopped | failing | needs-setup
+        public string Detail;                // why it needs setup or is failing (shown on hover)
         public bool On;
     }
 
@@ -110,7 +111,7 @@ namespace LSM
             c = t.Fg2;
             switch (s.Status)
             {
-                case "needs-setup": c = t.Warn; return "Needs sign-in";
+                case "needs-setup": c = t.Warn; return "Needs setup";
                 case "failing":     c = t.Bad;  return "Not responding, retrying";
                 case "running":
                     if (s.On) { c = t.Good; return "Running"; }
@@ -152,7 +153,7 @@ namespace LSM
             int n = Math.Max(1, Services.Count);
             group = new RectangleF(pad, y, w - 2 * pad, rowH * n);
             for (int i = 0; i < Services.Count; i++)
-                hits.Add(new Hit { R = new RectangleF(group.X, group.Y + i * rowH, group.Width, rowH), Action = "service", Arg = Services[i].Name });
+                hits.Add(new Hit { R = new RectangleF(group.X, group.Y + i * rowH, group.Width, rowH), Action = "service", Arg = Services[i].Name, Tip = Services[i].Detail });
 
             footer = new RectangleF(0, group.Bottom + pad, w, P(52));
             string[,] buttons = {
@@ -214,7 +215,7 @@ namespace LSM
             hover = h;
             Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
             if (h >= 0 && hits[h].Tip != null)
-                tip.Show(hits[h].Tip, this, (int)hits[h].R.X, (int)hits[h].R.Y - t.Px(30), 3000);
+                tip.Show(hits[h].Tip, this, (int)hits[h].R.X, (int)hits[h].R.Y - t.Px(30), hits[h].Action == "service" ? 8000 : 3000);
             else
                 tip.Hide(this);
             Invalidate();
@@ -377,7 +378,7 @@ namespace LSM
             for (int i = 0; i < hits.Count; i++)
             {
                 var h = hits[i];
-                if (h.Tip == null) continue;
+                if (h.Tip == null || h.Action == "service") continue;   // footer buttons only
                 if (i == hover)
                     using (var p = Art.Round(h.R, P(4)))
                     using (var hb = new SolidBrush(t.Dark ? Color.FromArgb(18, 255, 255, 255) : Color.FromArgb(14, 0, 0, 0)))
