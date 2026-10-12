@@ -1,39 +1,80 @@
 # Laptop Server Mode
 
-A tray toggle for Windows laptops that keeps the laptop working as a server (lid closed, unplugged, across restarts) without editing your own power settings. Plugins let it keep your own programs running and run scripts when things happen.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-informational)
+![WSL: optional](https://img.shields.io/badge/WSL-optional-lightgrey)
 
-- **One click** in the taskbar tray switches server mode on or off.
-- **ON:** lid close and idle sleep are ignored. The screen still turns off.
-- **OFF:** your normal power plan and settings apply, unchanged.
-- **Restarts:** server mode and your plugins come back after a reboot, before anyone signs in.
-- **Plugins:** keep a command running (a bot, a file server, an agent), or run a script on boot, shutdown, or when server mode changes. Write them in PowerShell or a Windows command, or in bash inside any WSL distro.
-- **WSL is optional.** Without it, everything works except plugins that run in WSL, which show "Needs setup" in the tray.
+Turn a Windows laptop into a small always-on server with one click, and back
+into a laptop with another. While server mode is on, the laptop keeps working
+with the lid closed, survives restarts (even before anyone signs in) and keeps
+your own programs running. Your normal power settings are never edited.
 
-## How it works
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/flyout-dark.png">
+  <img src="docs/images/flyout-light.png" width="360" alt="The tray flyout: server mode is on and two services are running">
+</picture>
 
-| Piece | What it does |
-| --- | --- |
-| Power override | Turning ON copies your *current* power plan into a temporary plan that changes only lid close (do nothing), sleep, hibernate and unattended sleep (never). Turning OFF switches back to your plan and deletes the copy. Your own plans are never edited. |
-| Battery rule | On battery, server mode pauses at 35% (configurable) and your normal settings take over. It resumes when you plug in. If the battery is already below the limit when you turn it on, you're asked to plug in first, with an option to continue anyway. |
-| Watchdog | A scheduled task that starts at boot. It re-applies server mode, applies the battery rule, restarts plugin services that stop (keeping the WSL distros they use running) and runs hooks. It uses "do not store password" (S4U), so **no password is saved anywhere**. |
-| Keep-awake | With the lid closed, Windows is in Modern Standby, and a "keep the system awake" request is what keeps it working. The watchdog holds one; a second small task holds another, so the laptop stays up even while a crashed watchdog is restarted (within 5 minutes). |
-| Tray | Starts when you sign in. A laptop icon with a green badge when ON, amber when paused by battery, and none when OFF. Left-click toggles; right-click opens a flyout with each service's status and switch. |
+## Contents
 
-The tray follows Windows 11's look: light and dark themes, your accent color, high DPI and keyboard navigation. Notifications show as "Laptop Server Mode".
+- [Features](#features)
+- [What it doesn't do](#what-it-doesnt-do)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Plugins](#plugins)
+- [Add-ons](#add-ons)
+- [Remote access](#remote-access)
+- [Troubleshooting](#troubleshooting)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
-Note: any power-setting change you make while server mode is ON goes to the temporary plan and is discarded when you turn it OFF.
+## Features
+
+- **One click.** Left-click the tray icon to turn server mode on or off. Right-click for a flyout with the status of everything it runs.
+- **Lid closed, no sleep.** While on, closing the lid and idle timers don't sleep the laptop. The screen still turns off.
+- **Your settings stay yours.** Turning it on copies your current power plan into a temporary one; turning it off switches back and deletes the copy.
+- **Battery safe.** On battery it pauses at 35% (configurable) and resumes when you plug in.
+- **Survives restarts.** A background watchdog brings server mode and your programs back after a reboot or Windows Update, before anyone signs in.
+- **Keeps your programs running.** Plugins keep a command running (a bot, a file server, an agent) and run scripts on boot, shutdown or state changes, with automatic restarts and backoff.
+- **Windows or Linux.** Plugins run as PowerShell or Windows commands, or as bash in any WSL distro. WSL is optional.
+- **No admin, no stored password.** Installs per user. The background tasks use Windows' "do not store password" mode.
+- **Native look.** Windows 11 style tray UI with light and dark themes, your accent color, high DPI and keyboard navigation.
+
+## What it doesn't do
+
+Laptop Server Mode is deliberately small. It does **not**:
+
+- **Give you remote access.** Pair it with Tailscale, ZeroTier, SSH or Chrome Remote Desktop (see [Remote access](#remote-access)).
+- **Sandbox your programs.** Plugins run as you, with your permissions. Only the optional [Claude Remote](addons/claude-remote/) add-on isolates anything (in its own WSL distro).
+- **Stop Windows Update restarts.** It comes back on its own afterwards.
+- **Limit battery charging.** Use your laptop vendor's tool (Lenovo Vantage, Dell Power Manager, ...).
+- **Show anything before sign-in.** The tray appears when you sign in; until then everything runs in the background.
+- **Run GUI programs in the background.** Background services run in Windows' service session (session 0), so they can't show windows.
+- **Run on macOS or Linux hosts.**
+
+Things to know:
+
+- Power-setting changes you make while server mode is on go to the temporary plan and are discarded when you turn it off.
+- Until someone signs in to Windows, Windows can't see WSL's files, and WSLg (Linux GUI apps, the microphone) isn't available to distros started then.
+- Shutdown hooks are best effort: Windows doesn't wait for them.
+- Tested on Windows 11 Home laptops with Modern Standby. Desktops should work (the battery rule then never applies) but aren't tested.
 
 ## Requirements
 
-- Windows 10/11 laptop (tested on Windows 11 Home with Modern Standby)
-- Optional: WSL 2, for plugins that run in a Linux distro (and the Claude add-on's ClaudeBox)
-- No admin rights needed (if Windows refuses, the installer asks for them)
+- Windows 10 or 11
+- Windows PowerShell 5.1 (built in)
+- Optional: [WSL 2](https://learn.microsoft.com/windows/wsl/install), for plugins that run in Linux and for the Claude add-on's ClaudeBox
+- No admin rights (if Windows insists, the installer asks for them)
 
-## Install
+## Quick start
 
-From PowerShell (no WSL needed). Download or `git clone` the repo, then in its folder:
+From PowerShell, in the folder you downloaded or cloned:
 
 ```powershell
+git clone https://github.com/rishabhjain08/laptop-server-mode.git
+cd laptop-server-mode
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
@@ -45,33 +86,44 @@ cd laptop-server-mode
 ./install.sh
 ```
 
-Files are installed to `%LOCALAPPDATA%\LaptopServerMode`. Re-run the installer to update; your config, state and plugins are kept. To remove everything, run `uninstall.ps1` (or `./uninstall.sh`). Each `.sh` script is a thin wrapper for the `.ps1` script of the same name, so the two always behave the same.
+A laptop icon appears next to the clock. Click it to turn server mode on.
 
-### Config
+- **Update:** pull the repo and run the installer again. Your config, state and plugins are kept.
+- **Uninstall:** `uninstall.ps1` (or `./uninstall.sh`). It restores your normal power plan and removes everything.
+
+Each `.sh` script is a thin wrapper for the `.ps1` script of the same name.
+
+## Usage
+
+| To | Do |
+| --- | --- |
+| Turn server mode on or off | Left-click the tray icon |
+| See what's running, switch services | Right-click the tray icon |
+| Stop every service at once (kill switch) | Flyout > square button |
+| Turn the screen off now | Flyout > moon button |
+| Open the logs | Flyout > folder button |
+| Hide the tray icon | Flyout > X button |
+| Get the tray icon back | Start menu > **Laptop Server Mode** |
+
+The icon has a green badge when server mode is on, amber when it's paused by
+the battery rule, and none when it's off.
+
+## Configuration
 
 `%LOCALAPPDATA%\LaptopServerMode\config.json`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `batteryLimit` | `35` | On battery, pause server mode at or below this % |
+| `batteryLimit` | `35` | On battery, pause server mode at or below this percent |
 | `pollSeconds` | `15` | How often the watchdog checks |
-| `wslDistro` | the distro `install.sh` ran in; empty from `install.ps1` | Default distro for WSL plugins. Empty: Windows' default WSL distro (`wsl --set-default <name>`) |
+| `wslDistro` | the distro `install.sh` ran in; empty from `install.ps1` | Default distro for WSL plugins. Empty means Windows' default WSL distro |
+
+Changes apply on the watchdog's next check.
 
 ## Plugins
 
-A plugin is a folder with a `plugin.json`. It can provide a **service** (something kept running), **hooks** (commands run on events), or both.
-
-```powershell
-.\plugin.ps1 add examples\event-log-windows   # install (or update) a plugin
-.\plugin.ps1 list                             # with where each runs, and why if it can't
-.\plugin.ps1 remove event-log-windows         # stops its service, then deletes it
-```
-
-(From WSL: `./plugin.sh add examples/file-share` and so on. If PowerShell refuses to run scripts, prefix with `powershell -ExecutionPolicy Bypass -File`.)
-
-Installed plugins live in `%LOCALAPPDATA%\LaptopServerMode\plugins`. The watchdog picks up changes on its next check; nothing needs restarting.
-
-### A service in one line
+A plugin is a folder with a `plugin.json`. It can keep a **service** running,
+run **hooks** on events, or both. This one keeps a file server running in WSL:
 
 ```json
 {
@@ -81,134 +133,67 @@ Installed plugins live in `%LOCALAPPDATA%\LaptopServerMode\plugins`. The watchdo
 }
 ```
 
-`run` is started in a login shell in your WSL distro (with `"runsIn": "windows"`: a hidden Windows command line) and restarted if it exits. Its output goes to `~/.local/state/laptop-server-mode/<name>.log` (Windows: `logs\<name>.log`). Services start when server mode turns on and are retried with growing gaps (up to 30 minutes) if they keep failing. Each service gets a switch in the tray flyout.
+Add `"runsIn": "windows"` to run it on Windows instead. Manage plugins with:
 
-The same thing on Windows, without WSL:
-
-```json
-{
-  "name": "file-share",
-  "title": "File share on port 8080",
-  "runsIn": "windows",
-  "run": "python -m http.server 8080 --directory %USERPROFILE%\\share"
-}
+```powershell
+.\plugin.ps1 add examples\event-log-windows   # install or update
+.\plugin.ps1 list                             # where each runs, and why if it can't
+.\plugin.ps1 enable|disable <name>            # like the tray switch
+.\plugin.ps1 remove <name>                    # stop it and delete it
 ```
 
-### With or without WSL
+Every service gets a switch and a status in the flyout. A plugin that can't
+run on this PC (for example, it needs WSL and WSL isn't installed) shows
+**Needs setup**; hover it for the reason.
 
-- A plugin runs in WSL unless it says `"runsIn": "windows"`. Its distro is its own `wslDistro`, else `config.json`'s `wslDistro`, else Windows' default WSL distro.
-- If WSL or that distro isn't installed, the plugin shows **Needs setup** in the tray (hover it for the reason), its hooks are skipped, and nothing retries in a loop. Install WSL or the distro, and it starts on the next check.
-- The watchdog keeps a distro running while one of its services should be running, since WSL stops idle distros. To keep a distro up whenever server mode is on, for your own tmux sessions say, add `examples/keep-wsl-running` (set `wslDistro` in it to pick the distro).
-
-### Settings
-
-A plugin can declare settings with defaults in `plugin.json`:
-
-```json
-"settings": { "port": 8080, "mode": "fast" }
-```
-
-To change them, put a `settings.json` in the installed plugin's folder (`%LOCALAPPDATA%\LaptopServerMode\plugins\<name>\settings.json`) with just the keys you change, e.g. `{ "port": 9090 }`. Updating the plugin with `plugin add` keeps your `settings.json`. Scripts, `run` commands and hooks get each setting as an environment variable: `LSM_SETTING_` plus the name in capitals, with `camelCase` split by `_` (`permissionMode` becomes `LSM_SETTING_PERMISSION_MODE`).
-
-### Hooks
-
-```json
-{
-  "name": "backup",
-  "on": {
-    "boot":     "./sync.sh",
-    "shutdown": "rclone sync ~/notes remote:notes"
-  }
-}
-```
-
-| Event | When |
-| --- | --- |
-| `boot` | Once after Windows starts, before anyone signs in |
-| `server-on` | Server mode turned on, or resumed after a battery pause |
-| `server-off` | Server mode turned off |
-| `server-paused` | Paused by the battery rule |
-| `service-failed` | A service failed to start (first failure only, until it recovers) |
-| `shutdown` | Windows is shutting down or restarting. Best effort: Windows doesn't wait, so keep it to a few seconds. |
-
-Hooks run one at a time with a 60-second limit, in the plugin's folder, and log to `logs\hooks.log`. Keep them short and don't leave work running in the background: a `boot` hook can run while the WSL distro is still starting, and processes it leaves behind may be cleaned up. Put long-running work in a service instead. Hooks get these environment variables:
-
-| Variable | Value |
-| --- | --- |
-| `LSM_EVENT` | The event name |
-| `LSM_STATE` | `on`, `paused` or `off` |
-| `LSM_PREVIOUS` | Previous state (state-change events) |
-| `LSM_SERVICE` | The failed service (`service-failed`) |
-| `LSM_BATTERY`, `LSM_ON_AC` | Battery percent, and `1` when plugged in |
-| `LSM_PLUGIN`, `LSM_PLUGIN_DIR` | This plugin's name and folder |
-| `LSM_SETTING_*` | The plugin's settings |
-
-`examples/event-log` (WSL) and `examples/event-log-windows` (PowerShell) log every event to `server-mode-events.log` in your home folder; they're a quick way to watch them.
-
-### plugin.json reference
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `name` | (required) | Unique id |
-| `title` | `name` | Shown in the tray |
-| `runsIn` | `wsl` | `wsl` (bash) or `windows` (PowerShell for hooks and `script`, a command line for `run`) |
-| `wslDistro`, `wslUser` | `config.json`'s distro (else Windows' default), its default user | Where WSL plugins run |
-| `run` | | A command to keep running |
-| `script` | | Instead of `run`: a script called with `start`, `check` (exit 0 when healthy) or `stop`. `start` may exit `3` for "needs one-time setup by a person" and print why; the tray shows *Needs setup* (the reason on hover) and checks again every minute instead of retrying in a loop. |
-| `on` | | Hooks: `{ "<event>": "<command>" }` |
-| `enabledByDefault` | `true` | `false` keeps a service off until you turn it on in the tray. A plugin's hooks run only while it is on. |
-| `stopWhenServerModeOff` | `false` | `false` leaves the service running when server mode is turned off |
-| `settings` | | Defaults for the plugin's settings (see [Settings](#settings)) |
-
-A few notes:
-
-- WSL scripts are piped into the distro, so they also work in distros that can't see Windows files.
-- Windows `run` services run hidden in the background (session 0), so they can't show windows.
-- Until someone signs in to Windows, Windows can't see WSL's files: a WSL plugin that starts a Windows program (`cmd.exe`, `powershell.exe`, ...) must `cd /mnt/c` first, or it fails with "Invalid argument".
-- Don't put secrets in `plugin.json`. Let the tool use its own login.
-
-### Kill switch
-
-**Stop all services** in the tray flyout turns every service off and stops it at once. Services in their own WSL distro are stopped by shutting that distro down.
+The full reference covers hooks, settings, environment variables, script services and WSL details: **[docs/PLUGINS.md](docs/PLUGINS.md)**. Examples are in [`examples/`](examples/).
 
 ## Add-ons
 
-- **[Claude Remote](addons/claude-remote/)**: runs Claude Code with Remote Control unattended, so you can drive it from your phone: inside an isolated, locked-down WSL distro (ClaudeBox), in your own WSL distro, or on Windows without WSL. It's three plugins with settings plus setup scripts, and a good example of larger plugins.
+- **[Claude Remote](addons/claude-remote/)** runs [Claude Code](https://claude.com/claude-code) with Remote Control around the clock, so you can drive it from your phone. It can run in an isolated, locked-down WSL distro (ClaudeBox), in your own WSL distro, or on Windows without WSL.
 
-## Remote access (optional)
+## Remote access
 
-- **Tailscale** on Windows for a private network to the laptop. With WSL [mirrored networking](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking), SSH into WSL at the laptop's Tailscale IP. You may need to allow the port through the Hyper-V firewall (elevated PowerShell):
+Laptop Server Mode keeps the laptop working; reaching it is up to you. Options that work well:
+
+- **Tailscale** or **ZeroTier** for a private network to the laptop. To SSH into WSL, use WSL [mirrored networking](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking) and allow the port through the Hyper-V firewall (elevated PowerShell; add `-RemoteAddresses <your network>` to limit who can connect):
   ```powershell
   New-NetFirewallHyperVRule -Name WSL-SSH -DisplayName "WSL SSH" -Direction Inbound `
     -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 22
   ```
-- **Chrome Remote Desktop** for the Windows desktop. It runs as a service, so it works at the lock screen and after reboots. Windows Home can't host built-in Remote Desktop.
+- **Chrome Remote Desktop** for the Windows desktop. It runs as a service, so it works at the lock screen and after restarts. (Windows Home can't host Windows' own Remote Desktop.)
 
-## Tips
-
-- Don't run it with the lid closed inside a bag; leave room for airflow.
-- If the laptop stays plugged in, set a battery charge limit (e.g. 80%) in your vendor's tool (Lenovo Vantage, Dell Power Manager, etc.).
-- Windows Update can still restart the laptop; server mode and plugins come back on their own afterwards.
+Tips: don't run it with the lid closed in a bag (it needs airflow), and if it
+stays plugged in, set a battery charge limit in your vendor's tool.
 
 ## Troubleshooting
 
-- Logs: the folder button in the tray flyout, or `%LOCALAPPDATA%\LaptopServerMode\logs` (`watchdog.log`, `hooks.log`, `tray.log`).
-- If the flyout says background checks stopped, click the banner or re-run the installer.
-- A service says **Needs setup**: hover it in the flyout for the reason, or run `.\plugin.ps1 list`.
-- To return to normal power immediately, turn server mode OFF, or run the uninstaller.
+| Symptom | What to do |
+| --- | --- |
+| Anything unexpected | Check the logs: flyout > folder button, or `%LOCALAPPDATA%\LaptopServerMode\logs` (`watchdog.log`, `hooks.log`, `tray.log`) |
+| The flyout says background checks stopped | Click the banner, or run the installer again |
+| A service says **Needs setup** | Hover it for the reason, or run `.\plugin.ps1 list` |
+| A service keeps failing | Its log is in `logs\<name>.log` (Windows) or `~/.local/state/laptop-server-mode/<name>.log` (WSL) |
+| The laptop sleeps with the lid closed | Check that server mode is on (green badge) and not paused by the battery rule (amber) |
+| You need normal power settings right now | Turn server mode off, or uninstall |
+| PowerShell refuses to run a script | Prefix it with `powershell -ExecutionPolicy Bypass -File` |
 
-## Development
+## Documentation
 
-- Edit files in `src/`, then re-run the installer to deploy.
-- `tests\run.ps1` (or `tests/run.sh` from WSL) runs the automated tests on a temporary copy (no power or service changes, no desktop needed, WSL mocked):
-  - `Logic.Tests.ps1`: every combination of the server-mode rule, the keep-awake rule, hook events and the service lifecycle; running with and without WSL (missing distros, which distros stay up); plugin settings; damaged files and log rotation.
-  - `Tray.Tests.ps1`: runs the real tray and sends the flyout real mouse and keyboard input: toggling, service switches, stop all, the low-battery prompt's answers, notifications, the watchdog banner, themes and errors.
-- `tests/CUJS.md` lists every user journey and how each one is tested.
-- `src/Plugins.ps1` runs plugins; `src/ServerMode.psm1` handles power and state; `src/Flyout.cs` and `src/TrayUi.cs` draw the tray UI and are compiled when the tray starts, so the repo contains no binaries.
-- Preview the UI without clicking around (from the install folder):
-  - `Tray.ps1 -Preview flyout -Out <folder>` saves PNGs of every flyout state in both themes.
-  - `Tray.ps1 -Preview battery` shows the low-battery dialog.
+| Document | For |
+| --- | --- |
+| [docs/PLUGINS.md](docs/PLUGINS.md) | Writing and configuring plugins |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, file layout, design decisions and Windows quirks |
+| [addons/claude-remote/README.md](addons/claude-remote/README.md) | The Claude Remote add-on |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Developing, testing and sending changes |
+| [SECURITY.md](SECURITY.md) | What it changes on your PC, and reporting vulnerabilities |
+| [CHANGELOG.md](CHANGELOG.md) | What changed |
+| [tests/CUJS.md](tests/CUJS.md) | Every user journey and how it's tested |
+
+## Contributing
+
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Rishabh Jain
