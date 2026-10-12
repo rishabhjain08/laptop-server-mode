@@ -164,6 +164,7 @@ A few notes:
 
 - WSL scripts are piped into the distro, so they also work in distros that can't see Windows files.
 - Windows `run` services run hidden in the background (session 0), so they can't show windows.
+- Until someone signs in to Windows, Windows can't see WSL's files: a WSL plugin that starts a Windows program (`cmd.exe`, `powershell.exe`, ...) must `cd /mnt/c` first, or it fails with "Invalid argument".
 - Don't put secrets in `plugin.json`. Let the tool use its own login.
 
 ### Kill switch
