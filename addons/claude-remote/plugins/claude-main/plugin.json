@@ -4,5 +4,6 @@
   "runsIn": "wsl",
   "script": "claude-main.sh",
   "enabledByDefault": false,
-  "stopWhenServerModeOff": false
+  "stopWhenServerModeOff": false,
+  "settings": { "mode": "session", "permissionMode": "", "name": "", "folder": "" }
 }

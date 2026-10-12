@@ -1,0 +1,9 @@
+{
+  "name": "claude-windows",
+  "title": "Claude on Windows",
+  "runsIn": "windows",
+  "script": "claude-windows.ps1",
+  "enabledByDefault": false,
+  "stopWhenServerModeOff": false,
+  "settings": { "folder": "%USERPROFILE%\\Claude", "permissionMode": "default", "name": "" }
+}

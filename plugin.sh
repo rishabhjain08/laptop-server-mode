@@ -3,6 +3,7 @@
 #   ./plugin.sh list
 #   ./plugin.sh add <folder>...     copy a plugin folder in (replaces an older copy, keeps your settings.json)
 #   ./plugin.sh remove <name>...    stop its service and delete it
+#   ./plugin.sh enable|disable <name>...  turn a service on or off (like its tray switch)
 # The watchdog picks changes up on its next round; no restart needed.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"

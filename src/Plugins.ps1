@@ -356,6 +356,7 @@ function Sync-Services {
             if ($chk.Output) { Write-Log "[$name] $($chk.Output)" }   # a healthy check may report what it fixed
             Set-ServiceStatus $st 'running'
         } elseif (-not $st.retryAt -or $now -ge [datetime]$st.retryAt) {
+            if ($chk.Output) { Write-Log "[$name] $($chk.Output)" }   # why the check failed, e.g. settings changed
             $r = Invoke-ServiceVerb $svc 'start'
             if ($r.Code -eq 3) {
                 # Needs one-time setup by a person; check again in a minute, quietly.

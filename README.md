@@ -172,7 +172,7 @@ A few notes:
 
 ## Add-ons
 
-- **[Claude Remote](addons/claude-remote/)**: runs Claude Code with Remote Control unattended inside an isolated, locked-down WSL distro (ClaudeBox), so you can drive it from your phone. It's a pair of plugins plus a setup script, and a good example of a larger plugin.
+- **[Claude Remote](addons/claude-remote/)**: runs Claude Code with Remote Control unattended, so you can drive it from your phone: inside an isolated, locked-down WSL distro (ClaudeBox), in your own WSL distro, or on Windows without WSL. It's three plugins with settings plus setup scripts, and a good example of larger plugins.
 
 ## Remote access (optional)
 

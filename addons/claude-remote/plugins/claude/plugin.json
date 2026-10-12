@@ -6,5 +6,6 @@
   "wslUser": "root",
   "script": "claude.sh",
   "enabledByDefault": true,
-  "stopWhenServerModeOff": false
+  "stopWhenServerModeOff": false,
+  "settings": { "mode": "session", "permissionMode": "bypassPermissions", "name": "" }
 }

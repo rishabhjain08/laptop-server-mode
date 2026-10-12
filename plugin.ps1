@@ -3,6 +3,8 @@
 #   .\plugin.ps1 add <folder>...     copy a plugin folder in (replaces an older
 #                                    copy, keeps your settings.json)
 #   .\plugin.ps1 remove <name>...    stop its service and delete it
+#   .\plugin.ps1 enable <name>...    turn a service on (like its tray switch)
+#   .\plugin.ps1 disable <name>...   turn a service off
 # (Run as: powershell -ExecutionPolicy Bypass -File .\plugin.ps1 ...)
 # The watchdog picks changes up on its next round; no restart needed.
 param(
@@ -15,7 +17,7 @@ $plugins = Join-Path $dest 'plugins'
 if (-not (Test-Path (Join-Path $dest 'ServerMode.psm1'))) {
     Write-Error "Laptop Server Mode isn't installed. Run install.ps1 first."
 }
-function Show-Usage { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 6 | ForEach-Object { $_ -replace '^# ?', '' }; exit 2 }
+function Show-Usage { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 8 | ForEach-Object { $_ -replace '^# ?', '' }; exit 2 }
 
 switch ($Command) {
     'list' {
@@ -54,6 +56,15 @@ switch ($Command) {
                 ForEach-Object { Invoke-ServiceVerb $_ 'stop' | Out-Null }
             Remove-Item $dir -Recurse -Force
             "Removed $name"
+        }
+    }
+    { $_ -in 'enable', 'disable' } {
+        if (-not $Items) { Show-Usage }
+        Import-Module (Join-Path $dest 'ServerMode.psm1')
+        foreach ($name in $Items) {
+            if (-not (Get-Services | Where-Object name -eq $name)) { Write-Warning "No service named $name"; continue }
+            Set-ServiceEnabled $name ($Command -eq 'enable')
+            "Turned $name $(if ($Command -eq 'enable') { 'on' } else { 'off' })"
         }
     }
     default { Show-Usage }
