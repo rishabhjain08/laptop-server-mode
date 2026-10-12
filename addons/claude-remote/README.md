@@ -53,7 +53,11 @@ plugin restarts Claude with the new settings.
 
 `permissionMode` is passed to Claude: `default` asks you (on your phone) before
 risky actions; `acceptEdits`, `auto`, `plan` and `dontAsk` are Claude's other
-modes; `bypassPermissions` skips every prompt. Outside ClaudeBox that gives
+modes; `bypassPermissions` skips every prompt. In server mode it's the mode new
+sessions start in; the mode picker in the Claude app can still change it per
+session. The app lists a server under its folder or computer name; open the
+`https://claude.ai/code?environment=...` link from the plugin's tmux pane (or
+`logs\claude-windows.log`) to go straight to it. Outside ClaudeBox that gives
 remote sessions your full access, so keep the default unless you understand the
 risk.
 

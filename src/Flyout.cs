@@ -215,7 +215,13 @@ namespace LSM
             hover = h;
             Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
             if (h >= 0 && hits[h].Tip != null)
-                tip.Show(hits[h].Tip, this, (int)hits[h].R.X, (int)hits[h].R.Y - t.Px(30), hits[h].Action == "service" ? 8000 : 3000);
+            {
+                // Footer buttons: above them. Service rows: just below, so the row
+                // above (and its status) stays visible.
+                bool row = hits[h].Action == "service";
+                int ty = row ? (int)(hits[h].R.Bottom + t.Px(2)) : (int)hits[h].R.Y - t.Px(30);
+                tip.Show(hits[h].Tip, this, (int)(hits[h].R.X + (row ? t.Px(12) : 0)), ty, row ? 8000 : 3000);
+            }
             else
                 tip.Hide(this);
             Invalidate();
