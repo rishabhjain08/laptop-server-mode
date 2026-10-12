@@ -24,7 +24,7 @@ box_root() { (cd /mnt/c && "$WSL" -d "$BOX" -u root --cd / -- "$@"); }
 win_env() { (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c "echo %$1%" | tr -d '\r'); }
 
 if [ $WANT_BOX = 1 ]; then
-if ! "$WSL" -l -q 2>/dev/null | tr -d '\0\r' | grep -qx "$BOX"; then
+if ! (cd /mnt/c && "$WSL" -l -q 2>/dev/null) | tr -d '\0\r' | grep -qx "$BOX"; then
   echo "==> Creating $BOX (Ubuntu 24.04, isolated; takes a few minutes)"
   (cd /mnt/c && "$WSL" --install Ubuntu-24.04 --name "$BOX" --location "$(win_env LOCALAPPDATA)\\$BOX" --no-launch --web-download)
 fi

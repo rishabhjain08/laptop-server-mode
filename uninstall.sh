@@ -3,6 +3,6 @@
 # A wrapper for uninstall.ps1 (which also works from PowerShell, without WSL).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
-PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
-cd /mnt/c
-"$PS" -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$REPO/uninstall.ps1")" | tr -d '\r'
+. "$REPO/src/stage.sh"
+cp "$REPO/uninstall.ps1" "$STAGE/"
+"$PS" -NoProfile -ExecutionPolicy Bypass -File "$STAGE_WIN\\uninstall.ps1" | tr -d '\r'

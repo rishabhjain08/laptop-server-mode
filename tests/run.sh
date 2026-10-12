@@ -7,7 +7,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 TMP_WIN="$(cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c 'echo %TEMP%' | tr -d '\r')\\lsm-test-src"
 TMP="$(wslpath -u "$TMP_WIN")"
-rm -rf "$TMP"; mkdir -p "$TMP"; cp "$REPO"/src/* "$TMP"/; cp "$REPO"/tests/*.ps1 "$TMP"/
+rm -rf "$TMP"; mkdir -p "$TMP"; cp "$REPO"/src/* "$TMP"/; cp "$REPO"/tests/*.Tests.ps1 "$TMP"/
+cd /mnt/c   # Windows programs fail to start from a WSL folder when Windows cannot see WSL's files
 status=0
 for t in "$TMP"/*.Tests.ps1; do
   echo "== $(basename "$t")"

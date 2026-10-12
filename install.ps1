@@ -12,7 +12,7 @@ $user = "$env:USERDOMAIN\$env:USERNAME"
 
 Write-Host "==> Copying files to $dest"
 New-Item -ItemType Directory -Force (Join-Path $dest 'logs'), (Join-Path $dest 'plugins') | Out-Null
-Copy-Item (Join-Path $repo 'src\*') $dest -Force
+Copy-Item (Join-Path $repo 'src\*') $dest -Exclude '*.sh' -Force   # stage.sh is for the repo's .sh wrappers
 
 # Older versions kept services in services\<name>\service.json.
 $old = Join-Path $dest 'services'
