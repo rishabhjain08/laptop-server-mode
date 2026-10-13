@@ -7,6 +7,8 @@
 #   Tray:     at sign-in, in your desktop session.
 #   Shutdown: when Windows starts shutting down or restarting (event 1074),
 #             runs plugins' "shutdown" hooks.
+#   PowerChange: when the charger is plugged in or unplugged (event 105),
+#             resumes a paused server mode right away (see OnPowerChange.ps1).
 param([Parameter(Mandatory)][string]$User)
 $ErrorActionPreference = 'Stop'
 
@@ -15,6 +17,7 @@ $ps  = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe
 $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
 $names = 'LaptopServerMode Watchdog', 'LaptopServerMode Tray', 'LaptopServerMode KeepAwake'
 $shutdownTask = 'LaptopServerMode Shutdown'
+$powerTask = 'LaptopServerMode PowerChange'
 
 foreach ($n in $names) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $n }
@@ -64,6 +67,16 @@ Register-ScheduledTask -TaskName $shutdownTask -Force `
     -Description 'Laptop Server Mode: runs plugin shutdown hooks when Windows shuts down or restarts.' `
     -Action (New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\Run-Hooks.ps1`" -Event shutdown") `
     -Trigger $onShutdown `
+    -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
+
+$onPowerChange = New-CimInstance -CimClass $class -ClientOnly
+$onPowerChange.Enabled = $true
+$onPowerChange.Subscription = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Kernel-Power''] and EventID=105]]</Select></Query></QueryList>'
+Register-ScheduledTask -TaskName $powerTask -Force `
+    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)) `
+    -Description 'Laptop Server Mode: resumes a paused server mode as soon as the charger is plugged in.' `
+    -Action (New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\OnPowerChange.ps1`"") `
+    -Trigger $onPowerChange `
     -Principal (New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Limited) | Out-Null
 
 # Notification identity for this install (see Tray.ps1); kept across updates.

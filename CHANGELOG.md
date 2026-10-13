@@ -6,6 +6,9 @@ numbered releases yet, so entries are grouped by date.
 
 ## Unreleased
 
+### Fixed
+- Server mode paused by the battery rule now resumes when you plug in even if the laptop has gone to sleep (new `LaptopServerMode PowerChange` task on the plug-in event).
+
 ## 2026-10-11 (evening)
 
 ### Added

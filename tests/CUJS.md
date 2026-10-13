@@ -29,7 +29,7 @@ looking at the screen).
 | ID | Journey | Variations | How |
 | --- | --- | --- | --- |
 | C1 | Unplug while on | above limit: stays on; reaches limit: pauses, toast | Auto, Live (limit raised), You (real unplug) |
-| C2 | Plug in while paused | resumes, toast | Auto, Live, You |
+| C2 | Plug in while paused | resumes, toast; also when the laptop has gone to sleep (lid closed) | Auto, Live, You |
 | C3 | "Turn on anyway", then plug in and unplug again | override cleared by plugging in | Auto, Live |
 | C4 | Boot on battery below the limit | starts paused | Auto |
 

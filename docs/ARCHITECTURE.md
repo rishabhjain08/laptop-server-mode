@@ -49,7 +49,8 @@ noticing anything beyond a stale heartbeat.
 | `src/Tray.ps1` | task, at sign-in | The tray icon, flyout, notifications and the low-battery prompt |
 | `src/Flyout.cs`, `src/TrayUi.cs` | compiled by `Tray.ps1` | Drawing the Windows 11 style flyout, icons and dialog |
 | `src/Run-Hooks.ps1` | task, on shutdown | Runs `shutdown` hooks |
-| `src/Install-Tasks.ps1` | installer | Registers the four tasks and the Start menu shortcut |
+| `src/OnPowerChange.ps1` | task, on charger plug/unplug | Resumes a paused server mode at once and holds the system awake until the watchdog runs (a sleeping laptop wakes for under a second on plug-in, too short for the watchdog's next round) |
+| `src/Install-Tasks.ps1` | installer | Registers the five tasks and the Start menu shortcut |
 | `src/Uninstall.ps1` | uninstaller | Stops everything, restores the normal power plan, removes all of it |
 | `src/stage.sh` | repo `.sh` wrappers | Copies scripts to a Windows temp folder before running them (see [quirks](#windows-and-wsl-quirks)) |
 
@@ -135,6 +136,7 @@ mode is on, and per WSL distro `~/.local/state/laptop-server-mode/` for WSL
 | A temporary copy of the power plan | Server mode must never change the user's own settings, and turning it off must restore them exactly, even after a crash |
 | Scheduled tasks with S4U ("do not store password") | Starts at boot before sign-in, needs no admin rights, and saves no password. The cost: no network credentials and no desktop (session 0) |
 | A "system required" power request, held twice | With the lid closed, Modern Standby suspends the system unless something holds a power request. The watchdog holds one; `KeepAwake.ps1` holds another so a crashed watchdog (restarted within 5 minutes) doesn't let the laptop sleep |
+| A task on the plug-in event (Kernel-Power 105) | Once paused by the battery rule the laptop sleeps normally. Plugging in wakes it only briefly, and the watchdog's sleeping loop doesn't run in that window |
 | A 5-minute repeating trigger on the tasks | Task Scheduler's restart setting covers a task that fails to start, not a process that dies later |
 | State in one JSON file, written atomically with a backup | A crash or power cut mid-write must not turn server mode off; a damaged file falls back to the backup |
 | Plugins instead of built-in features | The core knows nothing about Claude or any other tool; the Claude add-on is three ordinary plugins |
