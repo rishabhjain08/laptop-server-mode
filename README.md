@@ -59,6 +59,7 @@ Things to know:
 - Power-setting changes you make while server mode is on go to the temporary plan and are discarded when you turn it off.
 - Until someone signs in to Windows, Windows can't see WSL's files, and WSLg (Linux GUI apps, the microphone) isn't available to distros started then.
 - Shutdown hooks are best effort: Windows doesn't wait for them.
+- Resuming on plug-in while the laptop sleeps relies on Modern Standby, which wakes briefly when the charger is connected. Laptops with classic (S3) sleep don't wake on plug-in, so a paused server mode resumes only once something wakes the laptop.
 - Tested on Windows 11 Home laptops with Modern Standby. Desktops should work (the battery rule then never applies) but aren't tested.
 
 ## Requirements
